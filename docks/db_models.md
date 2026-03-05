@@ -14,4 +14,4 @@
 2. **title** — string
 3. **filename** — string
 4. **is_public** — boolean
-5. **owner_id** — integer — внешний ключ (`users.id`)
+5. **owner_id** — integer — внешний ключ (`User.id`)
