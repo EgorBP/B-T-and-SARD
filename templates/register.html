@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Register — MusicApp</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="brand">
+        <div class="logo">X</div>
+        <div class="site-title">
+          <h1>SpotX</h1>
+          <p>Создайте аккаунт</p>
+        </div>
+      </div>
+      <div></div>
+    </header>
+
+    <main class="card" style="max-width:640px;">
+      <h2>Регистрация / Вход</h2>
+
+      <form method="post" class="upload-form">
+        <input class="input" name="username" placeholder="Имя пользователя" required />
+        <input class="input" name="password" type="password" placeholder="Пароль" required />
+        <button class="upload-btn" type="submit">Продолжить</button>
+      </form>
+
+      <p style="color:var(--muted); margin-top:12px;">Если имя существует — вы будете автоматически авторизованы.</p>
+    </main>
+
+    <aside class="sidebar">
+      <div class="card">
+        <p style="color:var(--muted);">Коротко о проекте:</p>
+        <p style="font-size:13px; color:var(--muted);">Сайт для сохранения, прослушивания треков. Также позволяет публиковать треки.</p>
+      </div>
+    </aside>
+  </div>
+</body>
+</html>
