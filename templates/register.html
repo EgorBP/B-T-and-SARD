@@ -23,12 +23,13 @@
       <h2>Регистрация / Вход</h2>
 
       <form method="post" class="upload-form">
-        <input class="input" name="username" placeholder="Имя пользователя" required />
+        <input class="input" name="email" type="email" placeholder="Email" required />
+        <input class="input" name="name" placeholder="Имя" required />
         <input class="input" name="password" type="password" placeholder="Пароль" required />
         <button class="upload-btn" type="submit">Продолжить</button>
       </form>
 
-      <p style="color:var(--muted); margin-top:12px;">Если имя существует — вы будете автоматически авторизованы.</p>
+      <p style="color:var(--muted); margin-top:12px;">Если email уже существует — выполнится вход только при корректном пароле.</p>
     </main>
 
     <aside class="sidebar">

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Profile — {{ user.username }}</title>
+    <title>Profile — {{ user.name }}</title>
     <link rel="stylesheet" href="/static/style.css" />
     <script src="/static/player.js" defer></script>
 </head>
@@ -67,10 +67,10 @@
     <aside class="sidebar">
         <div class="card profile-header">
             <a href="/profile" class="avatar-link" aria-label="Перейти в профиль">
-                <div class="avatar">{{ user.username[0]|upper }}</div>
+                <div class="avatar">{{ user.name[0]|upper }}</div>
             </a>
             <div>
-                <p class="user-name">{{ user.username }}</p>
+                <p class="user-name">{{ user.name }}</p>
                 <div class="user-actions">
                     <a class="logout-btn" href="/logout" role="button" aria-label="Выйти из аккаунта">Выйти</a>
                 </div>
