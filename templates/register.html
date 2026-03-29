@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Register — MusicApp</title>
+  <title>Регистрация — SpotX</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -16,26 +16,23 @@
           <p>Создайте аккаунт</p>
         </div>
       </div>
-      <div></div>
+      <div><a class="small-btn" href="/auth/login">Уже есть аккаунт? Войти</a></div>
     </header>
 
     <main class="card" style="max-width:640px;">
-      <h2>Регистрация / Вход</h2>
+      <h2>Регистрация</h2>
 
-      <form method="post" class="upload-form">
+      <form method="post" action="/auth/register" class="upload-form">
         <input class="input" name="email" type="email" placeholder="Email" required />
         <input class="input" name="name" placeholder="Имя" required />
-        <input class="input" name="password" type="password" placeholder="Пароль" required />
-        <button class="upload-btn" type="submit">Продолжить</button>
+        <input class="input" name="password" type="password" placeholder="Пароль (минимум 6 символов)" required />
+        <button class="upload-btn" type="submit">Зарегистрироваться</button>
       </form>
-
-      <p style="color:var(--muted); margin-top:12px;">Если email уже существует — выполнится вход только при корректном пароле.</p>
     </main>
 
     <aside class="sidebar">
       <div class="card">
-        <p style="color:var(--muted);">Коротко о проекте:</p>
-        <p style="font-size:13px; color:var(--muted);">Сайт для сохранения, прослушивания треков. Также позволяет публиковать треки.</p>
+        <p style="color:var(--muted);">После регистрации вы будете автоматически авторизованы и перенаправлены в профиль.</p>
       </div>
     </aside>
   </div>
