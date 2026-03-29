@@ -1,5 +1,6 @@
-### Example user template template
-### Example user template
+music.db
+media/*
+!media/.gitkeep
 
 # IntelliJ project files
 .idea
