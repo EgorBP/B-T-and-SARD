@@ -23,9 +23,12 @@
       <h2>Вход</h2>
 
       <form method="post" action="/auth/login" class="upload-form">
-        <input class="input" name="email" type="email" placeholder="Email" required />
+        <input class="input" name="email" type="email" placeholder="Email" value="{{ form_email or '' }}" required />
         <input class="input" name="password" type="password" placeholder="Пароль" required />
         <button class="upload-btn" type="submit">Войти</button>
+        {% if error %}
+          <p style="margin-top:8px; color:#fca5a5; font-size:14px;">{{ error }}</p>
+        {% endif %}
       </form>
     </main>
 

@@ -1,11 +1,13 @@
 import os
 import re
 import shutil
+
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, UploadFile, File
 from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -23,6 +25,17 @@ pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 MEDIA_PATH = "media"
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    name: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
 
 def get_db():
@@ -115,7 +128,20 @@ def register_form(
     password: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    user = do_register(db=db, email=email, name=name, password=password)
+    try:
+        user = do_register(db=db, email=email, name=name, password=password)
+    except HTTPException as exc:
+        return templates.TemplateResponse(
+            "register.html",
+            {
+                "request": request,
+                "error": str(exc.detail),
+                "form_email": email,
+                "form_name": name,
+            },
+            status_code=exc.status_code,
+        )
+
     request.session["user_id"] = user.id
     return RedirectResponse("/profile", status_code=303)
 
@@ -127,7 +153,19 @@ def login_form(
     password: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    user = do_login(db=db, email=email, password=password)
+    try:
+        user = do_login(db=db, email=email, password=password)
+    except HTTPException as exc:
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "error": str(exc.detail),
+                "form_email": email,
+            },
+            status_code=exc.status_code,
+        )
+
     request.session["user_id"] = user.id
     return RedirectResponse("/profile", status_code=303)
 
