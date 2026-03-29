@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, UploadFile, File
@@ -39,48 +40,125 @@ def get_current_user(request: Request, db: Session):
     return None
 
 
+def validate_email(email: str) -> str:
+    normalized = email.strip().lower()
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", normalized):
+        raise HTTPException(status_code=422, detail="Некорректный email")
+    return normalized
+
+
+def validate_password(password: str) -> str:
+    if len(password) < 6:
+        raise HTTPException(status_code=422, detail="Пароль должен быть не короче 6 символов")
+    return password
+
+
+def validate_name(name: str) -> str:
+    normalized = name.strip()
+    if len(normalized) < 2:
+        raise HTTPException(status_code=422, detail="Имя должно содержать минимум 2 символа")
+    return normalized
+
+
+def do_register(db: Session, email: str, name: str, password: str) -> User:
+    email = validate_email(email)
+    name = validate_name(name)
+    password = validate_password(password)
+
+    existing_user = db.query(User).filter(User.email == email).first()
+    if existing_user:
+        raise HTTPException(status_code=409, detail="Пользователь с таким email уже существует")
+
+    user = User(
+        email=email,
+        name=name,
+        password_hash=pwd_context.hash(password),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def do_login(db: Session, email: str, password: str) -> User:
+    email = validate_email(email)
+    password = validate_password(password)
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user or not pwd_context.verify(password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Неверный email или пароль")
+    return user
+
+
 @app.get("/")
 def public_tracks(request: Request, db: Session = Depends(get_db)):
     tracks = db.query(Track).filter(Track.is_public == True).all()
-    user = get_current_user(request, db) 
+    user = get_current_user(request, db)
     return templates.TemplateResponse("tracks.html", {"request": request, "tracks": tracks, "user": user})
 
 
-@app.get("/register")
+@app.get("/auth/register")
 def register_page(request: Request):
     return templates.TemplateResponse("register.html", {"request": request})
 
 
-@app.post("/register")
-def register(request: Request,
-             email: str = Form(...),
-             name: str = Form(...),
-             password: str = Form(...),
-             db: Session = Depends(get_db)):
+@app.get("/auth/login")
+def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
 
-    user = db.query(User).filter(User.email == email).first()
 
-    if user:
-        if not pwd_context.verify(password, user.password_hash):
-            raise HTTPException(status_code=400, detail="Неверный пароль")
-        request.session["user_id"] = user.id
-        return RedirectResponse("/profile", status_code=303)
-
-    hashed = pwd_context.hash(password)
-    user = User(email=email, name=name, password_hash=hashed)
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
+@app.post("/auth/register")
+def register_form(
+    request: Request,
+    email: str = Form(...),
+    name: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = do_register(db=db, email=email, name=name, password=password)
     request.session["user_id"] = user.id
     return RedirectResponse("/profile", status_code=303)
+
+
+@app.post("/auth/login")
+def login_form(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = do_login(db=db, email=email, password=password)
+    request.session["user_id"] = user.id
+    return RedirectResponse("/profile", status_code=303)
+
+
+@app.post("/api/auth/register")
+def register_api(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
+    user = do_register(db=db, email=payload.email, name=payload.name, password=payload.password)
+    request.session["user_id"] = user.id
+    return {"id": user.id, "email": user.email, "name": user.name, "createdAt": user.created_at}
+
+
+@app.post("/api/auth/login")
+def login_api(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    user = do_login(db=db, email=payload.email, password=payload.password)
+    request.session["user_id"] = user.id
+    return {"id": user.id, "email": user.email, "name": user.name, "createdAt": user.created_at}
+
+
+@app.get("/api/auth/me")
+def me_api(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Не авторизован")
+    return {"id": user.id, "email": user.email, "name": user.name, "createdAt": user.created_at}
 
 
 @app.get("/profile")
 def profile(request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
     if not user:
-        return RedirectResponse("/register")
+        return RedirectResponse("/auth/login", status_code=303)
 
     tracks = db.query(Track).filter(Track.owner_id == user.id).all()
 
@@ -104,7 +182,7 @@ def upload_track(
 ):
     user = get_current_user(request, db)
     if not user:
-        return RedirectResponse("/register", status_code=303)
+        return RedirectResponse("/auth/login", status_code=303)
 
     file_path = os.path.join(MEDIA_PATH, file.filename)
 
@@ -142,5 +220,5 @@ def toggle_privacy(track_id: int, request: Request, db: Session = Depends(get_db
 
 @app.get("/logout")
 def logout(request: Request):
-    request.session.clear()  # очищаем сессию
+    request.session.clear()
     return RedirectResponse("/", status_code=303)
