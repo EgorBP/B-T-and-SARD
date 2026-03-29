@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Profile — {{ user.username }}</title>
+  <title>Profile — {{ user.user }}</title>
   <link rel="stylesheet" href="/static/style.css" />
   <script src="/static/player.js" defer></script>
 </head>
@@ -33,7 +33,7 @@
         <div class="track-details">
           <p class="track-title">{{ track.title }}</p>
           <p class="track-meta">
-            {% if track.owner %}by {{ track.owner.username }}{% else %}uploaded{% endif %}
+            {% if track.owner %}by {{ track.owner.user }}{% else %}uploaded{% endif %}
           </p>
 
           <div class="track-buttons">
@@ -52,10 +52,10 @@
     <div class="card profile-header">
       {% if user %}
         <a href="/profile" class="avatar-link" aria-label="Перейти в профиль">
-          <div class="avatar">{{ user.username[0]|upper }}</div>
+          <div class="avatar">{{ user.user[0]|upper }}</div>
         </a>
         <div>
-          <p class="user-name">{{ user.username }}</p>
+          <p class="user-name">{{ user.user }}</p>
           <div class="user-actions">
             <a class="logout-btn" href="/logout" role="button" aria-label="Выйти из аккаунта">Выйти</a>
           </div>

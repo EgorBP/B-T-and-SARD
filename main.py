@@ -53,18 +53,21 @@ def register_page(request: Request):
 
 @app.post("/register")
 def register(request: Request,
-             username: str = Form(...),
+             email: str = Form(...),
+             name: str = Form(...),
              password: str = Form(...),
              db: Session = Depends(get_db)):
 
-    user = db.query(User).filter(User.username == username).first()
+    user = db.query(User).filter(User.email == email).first()
 
     if user:
+        if not pwd_context.verify(password, user.password_hash):
+            raise HTTPException(status_code=400, detail="Неверный пароль")
         request.session["user_id"] = user.id
         return RedirectResponse("/profile", status_code=303)
 
     hashed = pwd_context.hash(password)
-    user = User(username=username, password_hash=hashed)
+    user = User(email=email, name=name, password_hash=hashed)
     db.add(user)
     db.commit()
     db.refresh(user)
