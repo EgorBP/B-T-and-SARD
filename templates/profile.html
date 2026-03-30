@@ -24,6 +24,15 @@
     </header>
 
     <main class="card">
+        
+        {% if new_recovery_phrase %}
+        <div class="recovery-alert">
+            <strong>Секретная фраза для восстановления:</strong>
+            <code>{{ new_recovery_phrase }}</code>
+            <p>Сохраните её в надежном месте — она нужна для смены пароля, если забудете текущий.</p>
+        </div>
+        {% endif %}
+
         <h2>Ваши треки</h2>
 
         <div class="tracks-list">

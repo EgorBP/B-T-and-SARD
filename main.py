@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import secrets
 
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, UploadFile, File
@@ -9,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 
@@ -36,6 +38,12 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    recoveryPhrase: str
+    newPassword: str
 
 
 def get_db():
@@ -73,6 +81,35 @@ def validate_name(name: str) -> str:
     return normalized
 
 
+def validate_recovery_phrase(phrase: str) -> str:
+    normalized = " ".join(phrase.strip().lower().split())
+    if len(normalized) < 10:
+        raise HTTPException(status_code=422, detail="Некорректная секретная фраза")
+    return normalized
+
+
+def generate_recovery_phrase() -> str:
+    words = [
+        "atlas", "forest", "river", "shadow", "silver", "sunset", "winter", "autumn",
+        "ember", "planet", "ocean", "breeze", "vector", "signal", "rocket", "matrix",
+        "native", "pixel", "quantum", "aurora", "cloud", "falcon", "tiger", "comet",
+    ]
+    return " ".join(secrets.choice(words) for _ in range(6))
+
+
+def ensure_user_columns() -> None:
+    with engine.begin() as connection:
+        result = connection.execute(text("PRAGMA table_info(users)"))
+        existing_columns = {row[1] for row in result}
+        if "recovery_phrase" not in existing_columns:
+            connection.execute(
+                text("ALTER TABLE users ADD COLUMN recovery_phrase VARCHAR DEFAULT '' NOT NULL")
+            )
+
+
+ensure_user_columns()
+
+
 def do_register(db: Session, email: str, name: str, password: str) -> User:
     email = validate_email(email)
     name = validate_name(name)
@@ -86,6 +123,7 @@ def do_register(db: Session, email: str, name: str, password: str) -> User:
         email=email,
         name=name,
         password_hash=pwd_context.hash(password),
+        recovery_phrase=generate_recovery_phrase(),
     )
     db.add(user)
     db.commit()
@@ -100,6 +138,24 @@ def do_login(db: Session, email: str, password: str) -> User:
     user = db.query(User).filter(User.email == email).first()
     if not user or not pwd_context.verify(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
+    return user
+
+
+def do_reset_password(db: Session, email: str, recovery_phrase: str, new_password: str) -> User:
+    email = validate_email(email)
+    recovery_phrase = validate_recovery_phrase(recovery_phrase)
+    new_password = validate_password(new_password)
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    if user.recovery_phrase != recovery_phrase:
+        raise HTTPException(status_code=401, detail="Неверная секретная фраза")
+
+    user.password_hash = pwd_context.hash(new_password)
+    db.commit()
+    db.refresh(user)
     return user
 
 
@@ -118,6 +174,11 @@ def register_page(request: Request):
 @app.get("/auth/login")
 def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.get("/auth/forgot-password")
+def forgot_password_page(request: Request):
+    return templates.TemplateResponse("forgot_password.html", {"request": request})
 
 
 @app.post("/auth/register")
@@ -143,6 +204,7 @@ def register_form(
         )
 
     request.session["user_id"] = user.id
+    request.session["new_recovery_phrase"] = user.recovery_phrase
     return RedirectResponse("/profile", status_code=303)
 
 
@@ -170,11 +232,42 @@ def login_form(
     return RedirectResponse("/profile", status_code=303)
 
 
+@app.post("/auth/forgot-password")
+def forgot_password_form(
+    request: Request,
+    email: str = Form(...),
+    recovery_phrase: str = Form(...),
+    new_password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    try:
+        do_reset_password(db=db, email=email, recovery_phrase=recovery_phrase, new_password=new_password)
+    except HTTPException as exc:
+        return templates.TemplateResponse(
+            "forgot_password.html",
+            {
+                "request": request,
+                "error": str(exc.detail),
+                "form_email": email,
+                "form_recovery_phrase": recovery_phrase,
+            },
+            status_code=exc.status_code,
+        )
+
+    return RedirectResponse("/auth/login", status_code=303)
+
+
 @app.post("/api/auth/register")
 def register_api(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
     user = do_register(db=db, email=payload.email, name=payload.name, password=payload.password)
     request.session["user_id"] = user.id
-    return {"id": user.id, "email": user.email, "name": user.name, "createdAt": user.created_at}
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "createdAt": user.created_at,
+        "recoveryPhrase": user.recovery_phrase,
+    }
 
 
 @app.post("/api/auth/login")
@@ -192,6 +285,17 @@ def me_api(request: Request, db: Session = Depends(get_db)):
     return {"id": user.id, "email": user.email, "name": user.name, "createdAt": user.created_at}
 
 
+@app.post("/api/auth/reset-password")
+def reset_password_api(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    do_reset_password(
+        db=db,
+        email=payload.email,
+        recovery_phrase=payload.recoveryPhrase,
+        new_password=payload.newPassword,
+    )
+    return {"ok": True}
+
+
 @app.get("/profile")
 def profile(request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
@@ -199,10 +303,11 @@ def profile(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/auth/login", status_code=303)
 
     tracks = db.query(Track).filter(Track.owner_id == user.id).all()
+    new_recovery_phrase = request.session.pop("new_recovery_phrase", None)
 
     return templates.TemplateResponse(
         "profile.html",
-        {"request": request, "user": user, "tracks": tracks}
+        {"request": request, "user": user, "tracks": tracks, "new_recovery_phrase": new_recovery_phrase}
     )
 
 

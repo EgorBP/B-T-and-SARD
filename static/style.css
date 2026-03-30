@@ -46,6 +46,11 @@ body{
   align-items:center;
   margin-bottom:8px;
 }
+.header-actions{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
 .brand{
   display:flex;
   gap:14px;
@@ -147,6 +152,26 @@ body{
   border-radius:10px;
   color:inherit;
   cursor:pointer;
+  font-size:13px;
+}
+
+.recovery-alert{
+  margin-bottom:16px;
+  background:rgba(34,211,238,0.08);
+  border:1px solid rgba(34,211,238,0.3);
+  border-radius:12px;
+  padding:12px;
+}
+.recovery-alert code{
+  display:block;
+  margin:8px 0 6px;
+  font-size:14px;
+  color:#a5f3fc;
+  word-break:break-word;
+}
+.recovery-alert p{
+  margin:0;
+  color:var(--muted);
   font-size:13px;
 }
 
