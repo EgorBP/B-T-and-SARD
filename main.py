@@ -219,7 +219,6 @@ def register_form(
         )
 
     request.session["user_id"] = user.id
-    request.session["new_recovery_phrase"] = user.recovery_phrase
     return RedirectResponse("/profile", status_code=303)
 
 
@@ -318,11 +317,10 @@ def profile(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/auth/login", status_code=303)
 
     tracks = db.query(Track).filter(Track.owner_id == user.id).all()
-    new_recovery_phrase = request.session.pop("new_recovery_phrase", None)
 
     return templates.TemplateResponse(
         "profile.html",
-        {"request": request, "user": user, "tracks": tracks, "new_recovery_phrase": new_recovery_phrase}
+        {"request": request, "user": user, "tracks": tracks}
     )
 
 

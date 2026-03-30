@@ -146,13 +146,25 @@ body{
   outline:none;
 }
 .small-btn{
-  background:transparent;
-  border:1px solid rgba(255,255,255,0.04);
-  padding:6px 10px;
+  background: linear-gradient(135deg, rgba(59,130,246,0.28), rgba(110,231,183,0.28));
+  border:1px solid rgba(110,231,183,0.32);
+  padding:8px 12px;
   border-radius:10px;
-  color:inherit;
+  color:#e6eef6;
   cursor:pointer;
   font-size:13px;
+  font-weight:600;
+  text-decoration:none;
+  box-shadow: 0 8px 20px rgba(59,130,246,0.16);
+  transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
+}
+.small-btn:hover{
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+  box-shadow: 0 12px 24px rgba(59,130,246,0.2);
+}
+.small-btn:active{
+  transform: translateY(1px);
 }
 
 .recovery-alert{
@@ -268,7 +280,6 @@ body{
 /* avatar link reset */
 .avatar-link { text-decoration: none; display: inline-block; }
 
-/* logout button — заметная, аккуратная */
 .logout-btn{
   display:inline-block;
   padding:10px 14px;
@@ -276,30 +287,23 @@ body{
   font-weight:700;
   font-size:14px;
   text-decoration:none;
-  background: linear-gradient(90deg,#ff6b6b,#ff9a9e); /* контрастный акцент */
+  background: linear-gradient(90deg,#fb7185,#f97316); /* контрастный акцент */
   color:#021127;
-  box-shadow: 0 10px 30px rgba(255,105,135,0.12);
+  box-shadow: 0 10px 28px rgba(249,115,22,0.28);
   border: 0;
   cursor: pointer;
+  transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
 }
-
+.logout-btn:hover{
+  transform: translateY(-1px);
+  filter: saturate(1.08);
+  box-shadow: 0 14px 30px rgba(249,115,22,0.36);
+}
 .logout-btn:active{ transform: translateY(1px); }
 .logout-btn[disabled]{ opacity:0.6; cursor:not-allowed; }
 
 /* убираем повторяемость в header: кнопки справа пустые — делаем маленький отступ */
 .header > div:last-child { min-width:120px; text-align:right; }
-
-/* сохраним визуальную гармонию: уменьшенная маленькая кнопка для гостя */
-.small-btn{
-  background:transparent;
-  border:1px solid rgba(255,255,255,0.04);
-  padding:8px 10px;
-  border-radius:10px;
-  color:inherit;
-  cursor:pointer;
-  font-size:13px;
-  text-decoration:none;
-}
 
 /* Кнопка в шапке — Public Tracks */
 .public-btn {
