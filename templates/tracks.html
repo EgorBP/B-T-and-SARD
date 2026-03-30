@@ -52,7 +52,11 @@
     <div class="card profile-header">
       {% if user %}
         <a href="/profile" class="avatar-link" aria-label="Перейти в профиль">
-          <div class="avatar">{{ user.name[0]|upper }}</div>
+          {% if user.avatar_filename %}
+            <img class="avatar avatar-image" src="/media/{{ user.avatar_filename }}" alt="Аватар {{ user.name }}" />
+          {% else %}
+            <div class="avatar">{{ user.name[0]|upper }}</div>
+          {% endif %}
         </a>
         <div>
           <p class="user-name">{{ user.name }}</p>

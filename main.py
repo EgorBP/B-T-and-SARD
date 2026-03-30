@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import secrets
+import uuid
 
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, UploadFile, File
@@ -105,6 +106,10 @@ def ensure_user_columns() -> None:
             connection.execute(
                 text("ALTER TABLE users ADD COLUMN recovery_phrase VARCHAR DEFAULT '' NOT NULL")
             )
+        if "avatar_filename" not in existing_columns:
+            connection.execute(
+                text("ALTER TABLE users ADD COLUMN avatar_filename VARCHAR")
+            )
 
 
 ensure_user_columns()
@@ -157,6 +162,16 @@ def do_reset_password(db: Session, email: str, recovery_phrase: str, new_passwor
     db.commit()
     db.refresh(user)
     return user
+
+
+def save_uploaded_file(file: UploadFile, prefix: str) -> str:
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    safe_ext = ext if ext in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp3", ".wav", ".ogg"} else ""
+    filename = f"{prefix}-{uuid.uuid4().hex}{safe_ext}"
+    file_path = os.path.join(MEDIA_PATH, filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    return filename
 
 
 @app.get("/")
@@ -311,6 +326,78 @@ def profile(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@app.get("/profile/settings")
+def profile_settings_page(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    return templates.TemplateResponse("profile_settings.html", {"request": request, "user": user})
+
+
+@app.post("/profile/settings")
+def profile_settings_form(
+    request: Request,
+    email: str = Form(...),
+    name: str = Form(...),
+    recovery_phrase: str = Form(...),
+    password: str = Form(None),
+    avatar: UploadFile = File(None),
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+
+    try:
+        normalized_email = validate_email(email)
+        normalized_name = validate_name(name)
+        normalized_phrase = validate_recovery_phrase(recovery_phrase)
+    except HTTPException as exc:
+        return templates.TemplateResponse(
+            "profile_settings.html",
+            {
+                "request": request,
+                "user": user,
+                "error": str(exc.detail),
+            },
+            status_code=exc.status_code,
+        )
+
+    email_owner = db.query(User).filter(User.email == normalized_email, User.id != user.id).first()
+    if email_owner:
+        return templates.TemplateResponse(
+            "profile_settings.html",
+            {
+                "request": request,
+                "user": user,
+                "error": "Пользователь с таким email уже существует",
+            },
+            status_code=409,
+        )
+
+    user.email = normalized_email
+    user.name = normalized_name
+    user.recovery_phrase = normalized_phrase
+
+    if password and password.strip():
+        user.password_hash = pwd_context.hash(validate_password(password))
+
+    if avatar and avatar.filename:
+        user.avatar_filename = save_uploaded_file(avatar, "avatar")
+
+    db.commit()
+    db.refresh(user)
+    return RedirectResponse("/profile", status_code=303)
+
+
+@app.get("/tracks/upload")
+def upload_page(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    return templates.TemplateResponse("upload_track.html", {"request": request, "user": user})
+
+
 @app.get("/media/{filename}")
 def media(filename: str):
     return FileResponse(os.path.join(MEDIA_PATH, filename))
@@ -327,14 +414,11 @@ def upload_track(
     if not user:
         return RedirectResponse("/auth/login", status_code=303)
 
-    file_path = os.path.join(MEDIA_PATH, file.filename)
-
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    stored_filename = save_uploaded_file(file, "track")
 
     track = Track(
         title=title,
-        filename=file.filename,
+        filename=stored_filename,
         is_public=False,
         owner_id=user.id
     )

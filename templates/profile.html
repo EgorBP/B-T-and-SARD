@@ -24,7 +24,6 @@
     </header>
 
     <main class="card">
-        
         {% if new_recovery_phrase %}
         <div class="recovery-alert">
             <strong>Секретная фраза для восстановления:</strong>
@@ -61,29 +60,30 @@
             {% endfor %}
         </div>
 
-        <hr style="margin:18px 0; border-color:var(--glass-border);" />
-
-        <h3>Загрузить новый трек (по умолчанию — приватный)</h3>
-        <form action="/upload" method="post" enctype="multipart/form-data" class="upload-form">
-            <input class="input" name="title" placeholder="Название трека" required />
-            <div class="file-row">
-                <input class="file-input" type="file" name="file" accept="audio/*" required />
-                <button class="upload-btn" type="submit">Загрузить</button>
-            </div>
-        </form>
     </main>
 
     <aside class="sidebar">
         <div class="card profile-header">
             <a href="/profile" class="avatar-link" aria-label="Перейти в профиль">
+                {% if user.avatar_filename %}
+                <img class="avatar avatar-image" src="/media/{{ user.avatar_filename }}" alt="Аватар {{ user.name }}" />
+                {% else %}
                 <div class="avatar">{{ user.name[0]|upper }}</div>
+                {% endif %}
             </a>
             <div>
                 <p class="user-name">{{ user.name }}</p>
                 <div class="user-actions">
+                    <a class="small-btn settings-btn" href="/profile/settings" role="button" aria-label="Настройки профиля">Настройки</a>
                     <a class="logout-btn" href="/logout" role="button" aria-label="Выйти из аккаунта">Выйти</a>
                 </div>
             </div>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top:0;">Загрузка треков</h3>
+            <p style="color:var(--muted); margin-bottom:12px;">Перейдите на отдельную страницу для загрузки нового трека.</p>
+            <a class="public-btn" href="/tracks/upload">Перейти к загрузке</a>
         </div>
     </aside>
 </div>
