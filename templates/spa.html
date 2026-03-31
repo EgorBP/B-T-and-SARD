@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SpotX</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="/static/app.js" defer></script>
+  <script src="/static/audio_player.js" defer></script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- Один общий плеер на всё приложение -->
+  <div id="floating-player" class="floating-player" aria-hidden="true">
+    <div class="fp-inner">
+      <div class="fp-left">
+        <div class="fp-thumb" id="player-thumb">X</div>
+        <div class="fp-meta">
+          <div id="player-track" class="fp-title">Название трека</div>
+          <div id="player-artist" class="fp-artist"></div>
+        </div>
+      </div>
+
+      <div class="fp-center">
+        <button id="player-play" class="fp-btn" aria-label="Play/Pause"></button>
+        <div class="fp-progress-row">
+          <span id="player-current" class="time">0:00</span>
+          <input id="player-progress" type="range" min="0" max="100" value="0" />
+          <span id="player-duration" class="time">0:00</span>
+        </div>
+      </div>
+
+      <div class="fp-right">
+        <a id="player-download" class="fp-btn download" href="#" download aria-label="Download"></a>
+        <div class="volume-wrap">
+          <button id="player-mute" class="fp-btn" aria-label="Mute/Unmute"></button>
+          <input id="player-volume" type="range" min="0" max="1" step="0.01" value="1" />
+        </div>
+        <button id="player-close" class="fp-btn close" aria-label="Скрыть плеер">✕</button>
+      </div>
+    </div>
+    <audio id="player-audio" preload="metadata"></audio>
+  </div>
+
+  <button id="player-open" class="player-open-btn" aria-hidden="true" title="Открыть плеер">▶</button>
+</body>
+</html>
+

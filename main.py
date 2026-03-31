@@ -62,6 +62,17 @@ def get_current_user(request: Request, db: Session):
     return None
 
 
+def render_spa(request: Request):
+    return templates.TemplateResponse("spa.html", {"request": request})
+
+
+def require_user(request: Request, db: Session) -> User:
+    user = get_current_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthenticated")
+    return user
+
+
 def validate_email(email: str) -> str:
     normalized = email.strip().lower()
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", normalized):
@@ -175,25 +186,23 @@ def save_uploaded_file(file: UploadFile, prefix: str) -> str:
 
 
 @app.get("/")
-def public_tracks(request: Request, db: Session = Depends(get_db)):
-    tracks = db.query(Track).filter(Track.is_public == True).all()
-    user = get_current_user(request, db)
-    return templates.TemplateResponse("tracks.html", {"request": request, "tracks": tracks, "user": user})
+def public_tracks(request: Request):
+    return render_spa(request)
 
 
 @app.get("/auth/register")
 def register_page(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request})
+    return render_spa(request)
 
 
 @app.get("/auth/login")
 def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return render_spa(request)
 
 
 @app.get("/auth/forgot-password")
 def forgot_password_page(request: Request):
-    return templates.TemplateResponse("forgot_password.html", {"request": request})
+    return render_spa(request)
 
 
 @app.post("/auth/register")
@@ -310,26 +319,112 @@ def reset_password_api(payload: ResetPasswordRequest, db: Session = Depends(get_
     return {"ok": True}
 
 
+@app.post("/api/auth/logout")
+def logout_api(request: Request):
+    request.session.clear()
+    return {"ok": True}
+
+
+@app.get("/api/tracks/public")
+def public_tracks_api(db: Session = Depends(get_db)):
+    tracks = db.query(Track).filter(Track.is_public == True).all()
+    items = []
+    for t in tracks:
+        items.append(
+            {
+                "id": t.id,
+                "title": t.title,
+                "filename": t.filename,
+                "is_public": bool(t.is_public),
+                "owner_id": t.owner_id,
+                "owner_name": t.owner.name if t.owner else None,
+            }
+        )
+    return {"items": items}
+
+
+@app.get("/api/tracks/mine")
+def my_tracks_api(request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    tracks = db.query(Track).filter(Track.owner_id == user.id).all()
+    items = [{"id": t.id, "title": t.title, "filename": t.filename, "is_public": bool(t.is_public)} for t in tracks]
+    return {"items": items}
+
+
+@app.get("/api/profile/settings")
+def profile_settings_get_api(request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    return {
+        "email": user.email,
+        "name": user.name,
+        "recoveryPhrase": user.recovery_phrase,
+        "avatarFilename": user.avatar_filename,
+    }
+
+
+@app.post("/api/profile/settings")
+def profile_settings_post_api(
+    request: Request,
+    email: str = Form(...),
+    name: str = Form(...),
+    recovery_phrase: str = Form(...),
+    password: str = Form(None),
+    avatar: UploadFile = File(None),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+
+    normalized_email = validate_email(email)
+    normalized_name = validate_name(name)
+    normalized_phrase = validate_recovery_phrase(recovery_phrase)
+
+    email_owner = db.query(User).filter(User.email == normalized_email, User.id != user.id).first()
+    if email_owner:
+        raise HTTPException(status_code=409, detail="Email занят")
+
+    user.email = normalized_email
+    user.name = normalized_name
+    user.recovery_phrase = normalized_phrase
+
+    if password and password.strip():
+        user.password_hash = pwd_context.hash(validate_password(password))
+
+    if avatar and avatar.filename:
+        user.avatar_filename = save_uploaded_file(avatar, "avatar")
+
+    db.commit()
+    db.refresh(user)
+    return {"ok": True, "user": {"id": user.id, "name": user.name, "email": user.email, "avatarFilename": user.avatar_filename}}
+
+
+@app.post("/api/tracks/upload")
+def upload_track_api(
+    request: Request,
+    title: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    title = title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Название трека обязательно")
+
+    stored_filename = save_uploaded_file(file, "track")
+    track = Track(title=title, filename=stored_filename, is_public=False, owner_id=user.id)
+    db.add(track)
+    db.commit()
+    db.refresh(track)
+    return {"ok": True, "track": {"id": track.id, "title": track.title, "filename": track.filename, "is_public": bool(track.is_public)}}
+
+
 @app.get("/profile")
 def profile(request: Request, db: Session = Depends(get_db)):
-    user = get_current_user(request, db)
-    if not user:
-        return RedirectResponse("/auth/login", status_code=303)
-
-    tracks = db.query(Track).filter(Track.owner_id == user.id).all()
-
-    return templates.TemplateResponse(
-        "profile.html",
-        {"request": request, "user": user, "tracks": tracks}
-    )
+    return render_spa(request)
 
 
 @app.get("/profile/settings")
 def profile_settings_page(request: Request, db: Session = Depends(get_db)):
-    user = get_current_user(request, db)
-    if not user:
-        return RedirectResponse("/auth/login", status_code=303)
-    return templates.TemplateResponse("profile_settings.html", {"request": request, "user": user})
+    return render_spa(request)
 
 
 @app.post("/profile/settings")
@@ -390,10 +485,7 @@ def profile_settings_form(
 
 @app.get("/tracks/upload")
 def upload_page(request: Request, db: Session = Depends(get_db)):
-    user = get_current_user(request, db)
-    if not user:
-        return RedirectResponse("/auth/login", status_code=303)
-    return templates.TemplateResponse("upload_track.html", {"request": request, "user": user})
+    return render_spa(request)
 
 
 @app.get("/media/{filename}")
