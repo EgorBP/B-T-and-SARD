@@ -1,5 +1,5 @@
 (() => {
-  const state = { user: null, userLoaded: false, publicTracks: [], myTracks: [] };
+  const state = { user: null, userLoaded: false, publicTracks: [], myTracks: [], avatarBust: 0 };
 
   function qs(sel, root = document) {
     return root.querySelector(sel);
@@ -31,8 +31,9 @@
     }
   }
 
-  function navigate(path) {
-    history.pushState({}, "", path);
+  function navigate(path, { replace = false } = {}) {
+    if (replace) history.replaceState({}, "", path);
+    else history.pushState({}, "", path);
     void renderRoute();
   }
 
@@ -97,11 +98,36 @@
   }
 
   function header(subtitle, actions) {
-    const brand = el("div", { class: "brand" }, [
-      el("div", { class: "logo" }, ["X"]),
+    const brand = el("a", { class: "brand", href: "/", "data-link": "1" }, [
+      el("div", { class: "logo" }, [el("img", { class: "logo-img", src: "/static/logo.svg", alt: "SpotX" })]),
       el("div", { class: "site-title" }, [el("h1", {}, ["SpotX"]), el("p", {}, [subtitle])]),
     ]);
     return el("header", { class: "header" }, [brand, el("div", { class: "header-actions" }, actions || [])]);
+  }
+
+  function avatarNode(user) {
+    const name = user?.name || "Guest";
+    const filename = user?.avatarFilename;
+    if (filename) {
+      const bust = state.avatarBust ? `?v=${state.avatarBust}` : "";
+      return el("div", { class: "avatar" }, [
+        el("img", { class: "avatar-image", src: `/media/${filename}${bust}`, alt: `Аватар ${name}` }),
+      ]);
+    }
+    return el("div", { class: "avatar" }, [String(name).slice(0, 1).toUpperCase()]);
+  }
+
+  function avatarLinkNode(user) {
+    if (user) return el("a", { class: "avatar-link", href: "/profile", "data-link": "1" }, [avatarNode(user)]);
+    return avatarNode(user);
+  }
+
+  function field(labelText, inputNode, { help = null } = {}) {
+    const id = inputNode.getAttribute("id");
+    const label = el("label", { class: "field-label", for: id || "" }, [labelText]);
+    const parts = [label, inputNode];
+    if (help) parts.push(el("p", { class: "field-help" }, [help]));
+    return el("div", { class: "field" }, parts);
   }
 
   function topNav(active) {
@@ -111,7 +137,7 @@
         { class: active === key ? "public-btn" : "small-btn", href, "data-link": "1" },
         [label]
       );
-    return [mk("/", "Главная", "home"), mk("/tracks", "Треки", "tracks")];
+    return [mk("/", "Главная", "home"), mk("/tracks", "Треки", "tracks"), mk("/profile", "Профиль", "profile")];
   }
 
   function shell({ subtitle, actions, main, sidebar }) {
@@ -124,6 +150,11 @@
         el("aside", { class: "sidebar" }, [sidebar || el("div")]),
       ])
     );
+
+    // Notify auxiliary scripts (e.g. audio player) that SPA just re-rendered.
+    try {
+      window.dispatchEvent(new Event("spotx:render"));
+    } catch {}
   }
 
   function trackItem(track, { own } = {}) {
@@ -159,12 +190,12 @@
 
   function userSideCard() {
     return el("div", { class: "card profile-header" }, [
-      el("div", { class: "avatar" }, [state.user ? String(state.user.name).slice(0, 1).toUpperCase() : "G"]),
+      avatarLinkNode(state.user),
       el("div", {}, [
         el("p", { class: "user-name" }, [state.user ? state.user.name : "Guest"]),
         el("div", { class: "user-actions" }, [
           state.user
-            ? el("a", { class: "small-btn", href: "/profile", "data-link": "1" }, ["Профиль"])
+            ? el("a", { class: "small-btn", href: "/profile/settings", "data-link": "1" }, ["Настройки"])
             : el("a", { class: "small-btn", href: "/auth/login", "data-link": "1" }, ["Вход"]),
           state.user
             ? el("button", { class: "logout-btn", type: "button", onclick: logout }, ["Выйти"])
@@ -269,7 +300,7 @@
         if ((password.value || "").length < 6) return msg.appendChild(errorText("Пароль должен быть не короче 6 символов"));
         try {
           const data = await apiJson("/api/auth/register", { method: "POST", body: JSON.stringify({ email: email.value, name: name.value, password: password.value }) });
-          state.user = { id: data.id, email: data.email, name: data.name, createdAt: data.createdAt };
+          state.user = { id: data.id, email: data.email, name: data.name, createdAt: data.createdAt, avatarFilename: data.avatarFilename || null };
           state.userLoaded = true;
           msg.appendChild(infoText("Успешно. Секретная фраза доступна в настройках профиля."));
           msg.appendChild(el("div", { style: "margin-top:10px;" }, [el("a", { class: "public-btn", href: "/profile", "data-link": "1" }, ["Перейти в профиль"])]));
@@ -322,7 +353,7 @@
 
   async function viewProfile() {
     document.title = "Профиль - SpotX";
-    if (!state.user) return navigate("/auth/login");
+    if (!state.user) return navigate("/auth/login", { replace: true });
     const data = await apiJson("/api/tracks/mine", { method: "GET" });
     state.myTracks = Array.isArray(data.items) ? data.items : [];
 
@@ -331,7 +362,7 @@
 
     const side = el("div", {}, [
       el("div", { class: "card profile-header" }, [
-        el("div", { class: "avatar" }, [String(state.user.name).slice(0, 1).toUpperCase()]),
+        avatarLinkNode(state.user),
         el("div", {}, [
           el("p", { class: "user-name" }, [state.user.name]),
           el("div", { class: "user-actions" }, [
@@ -347,20 +378,61 @@
       ]),
     ]);
 
-    shell({ subtitle: "Профиль", actions: [el("a", { class: "public-btn", href: "/tracks", "data-link": "1" }, ["Треки"])], main, sidebar: side });
+    shell({ subtitle: "Профиль", actions: topNav("profile"), main, sidebar: side });
   }
 
   async function viewSettings() {
     document.title = "Настройки - SpotX";
-    if (!state.user) return navigate("/auth/login");
+    if (!state.user) return navigate("/auth/login", { replace: true });
     const data = await apiJson("/api/profile/settings", { method: "GET" });
+    if (data?.avatarFilename !== undefined) state.user.avatarFilename = data.avatarFilename;
 
-    const email = el("input", { class: "input", type: "email", placeholder: "Email", value: data.email || "" });
-    const name = el("input", { class: "input", placeholder: "Имя", value: data.name || "" });
-    const phrase = el("input", { class: "input", placeholder: "Секретная фраза", value: data.recoveryPhrase || "" });
-    const pass = el("input", { class: "input", type: "password", placeholder: "Новый пароль (необязательно)" });
-    const avatar = el("input", { class: "file-input", type: "file", accept: "image/*" });
+    const email = el("input", { id: "settings-email", class: "input", type: "email", placeholder: "name@example.com", value: data.email || "" });
+    const name = el("input", { id: "settings-name", class: "input", placeholder: "Ваше имя", value: data.name || "" });
+    const phrase = el("input", { id: "settings-phrase", class: "input", placeholder: "Например: atlas forest river ...", value: data.recoveryPhrase || "" });
+    const pass = el("input", { id: "settings-pass", class: "input", type: "password", placeholder: "Оставьте пустым, если не меняете" });
+    const avatar = el("input", { id: "settings-avatar", class: "file-input file-input-hidden", type: "file", accept: "image/*" });
     const msg = el("div");
+
+    const avatarBox = avatarNode(state.user);
+    avatarBox.classList.add("avatar-preview");
+    const avatarHint = el("p", { class: "field-help" }, ["Нажмите на аватар в сайдбаре, чтобы перейти в профиль."]);
+
+    const avatarFileLabel = el("div", { class: "avatar-file" }, ["Файл не выбран"]);
+    const avatarPickBtn = el(
+      "button",
+      {
+        class: "avatar-change-btn",
+        type: "button",
+        onclick: () => avatar.click(),
+      },
+      ["Сменить аватар"]
+    );
+
+    const avatarPreviewWrap = el("div", { class: "settings-avatar-row" }, [
+      avatarBox,
+      el("div", {}, [
+        el("div", { style: "font-weight:700;margin-bottom:4px;" }, ["Аватар"]),
+        el("div", { style: "color:var(--muted);font-size:12px;line-height:1.5;" }, ["jpg/png/webp/gif до 1 файла."]),
+        el("div", { style: "margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;" }, [
+          avatarPickBtn,
+          avatarFileLabel,
+        ]),
+      ]),
+    ]);
+
+    avatar.addEventListener("change", () => {
+      const f = avatar.files && avatar.files[0];
+      avatarFileLabel.textContent = f ? f.name : "Файл не выбран";
+      if (!f) return;
+      const img = avatarBox.querySelector("img");
+      const url = URL.createObjectURL(f);
+      if (img) img.src = url;
+      else {
+        avatarBox.innerHTML = "";
+        avatarBox.appendChild(el("img", { class: "avatar-image", src: url, alt: `Аватар ${state.user?.name || ""}` }));
+      }
+    });
 
     const form = el("form", {
       class: "upload-form",
@@ -382,19 +454,22 @@
         try {
           const res = await apiForm("/api/profile/settings", fd);
           if (res?.user?.name) state.user.name = res.user.name;
+          if (res?.user?.avatarFilename !== undefined) state.user.avatarFilename = res.user.avatarFilename;
+          if (avatar.files && avatar.files[0]) state.avatarBust = Date.now();
           msg.appendChild(infoText("Сохранено"));
         } catch (err) {
           msg.appendChild(errorText(err.message || "Ошибка"));
         }
       },
     }, [
-      email,
-      name,
-      phrase,
-      pass,
-      el("label", { style: "color:var(--muted);font-size:13px;" }, ["Новый аватар (jpg/png/webp/gif)"]),
+      avatarPreviewWrap,
       avatar,
-      el("button", { class: "upload-btn", type: "submit" }, ["Сохранить"]),
+      avatarHint,
+      field("Email", email),
+      field("Имя", name),
+      field("Секретная фраза", phrase, { help: "Нужна для восстановления пароля. Храните в надежном месте." }),
+      field("Новый пароль", pass, { help: "Минимум 6 символов. Оставьте пустым, если не меняете." }),
+      el("button", { class: "upload-btn", type: "submit" }, ["Сохранить изменения"]),
       msg,
     ]);
 
@@ -408,10 +483,27 @@
 
   async function viewUpload() {
     document.title = "Загрузка трека - SpotX";
-    if (!state.user) return navigate("/auth/login");
+    if (!state.user) return navigate("/auth/login", { replace: true });
     const title = el("input", { class: "input", placeholder: "Название трека", required: "1" });
-    const file = el("input", { class: "file-input", type: "file", accept: "audio/*", required: "1" });
+    // Custom file picker UI (native input hidden).
+    const file = el("input", { class: "file-input file-input-hidden", type: "file", accept: "audio/*" });
     const msg = el("div");
+
+    const fileName = el("div", { class: "avatar-file" }, ["Файл не выбран"]);
+    const pick = el("button", { class: "avatar-change-btn", type: "button", onclick: () => file.click() }, ["Выбрать аудио"]);
+    file.addEventListener("change", () => {
+      const f = file.files && file.files[0];
+      fileName.textContent = f ? f.name : "Файл не выбран";
+    });
+
+    const filePicker = el("div", { class: "field" }, [
+      el("div", { class: "field-label" }, ["Аудиофайл"]),
+      el("div", { class: "card", style: "padding:12px;display:flex;gap:10px;align-items:center;width:100%;" }, [
+        pick,
+        fileName,
+      ]),
+      el("p", { class: "field-help" }, ["Поддерживаются любые аудиофайлы, которые воспроизводит браузер (mp3/ogg/wav и т.д.)."]),
+    ]);
 
     const form = el("form", {
       class: "upload-form",
@@ -433,11 +525,17 @@
           msg.appendChild(errorText(err.message || "Ошибка загрузки"));
         }
       },
-    }, [title, file, el("button", { class: "upload-btn", type: "submit" }, ["Загрузить"]), msg]);
+    }, [
+      field("Название трека", title),
+      filePicker,
+      file,
+      el("button", { class: "upload-btn", type: "submit" }, ["Загрузить"]),
+      msg,
+    ]);
 
     shell({
       subtitle: "Загрузка трека",
-      actions: [el("a", { class: "small-btn", href: "/profile", "data-link": "1" }, ["Назад в профиль"])],
+      actions: topNav("profile"),
       main: el("div", {}, [el("h2", {}, ["Добавить новый трек"]), form]),
       sidebar: el("div"),
     });

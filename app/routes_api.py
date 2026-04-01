@@ -32,6 +32,7 @@ def register_api(payload: RegisterRequest, request: Request, db: Session = Depen
         "name": user.name,
         "createdAt": user.created_at,
         "recoveryPhrase": user.recovery_phrase,
+        "avatarFilename": user.avatar_filename,
     }
 
 
@@ -39,7 +40,13 @@ def register_api(payload: RegisterRequest, request: Request, db: Session = Depen
 def login_api(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
     user = do_login(db=db, email=payload.email, password=payload.password)
     request.session["user_id"] = user.id
-    return {"id": user.id, "email": user.email, "name": user.name, "createdAt": user.created_at}
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "createdAt": user.created_at,
+        "avatarFilename": user.avatar_filename,
+    }
 
 
 @router.get("/api/auth/me")
@@ -47,7 +54,13 @@ def me_api(request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
     if not user:
         raise HTTPException(status_code=401, detail="Не авторизован")
-    return {"id": user.id, "email": user.email, "name": user.name, "createdAt": user.created_at}
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "createdAt": user.created_at,
+        "avatarFilename": user.avatar_filename,
+    }
 
 
 @router.post("/api/auth/reset-password")
@@ -163,4 +176,3 @@ def upload_track_api(
         "ok": True,
         "track": {"id": track.id, "title": track.title, "filename": track.filename, "is_public": bool(track.is_public)},
     }
-

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="SpotX logo">
+  <defs>
+    <linearGradient id="neon" x1="10" y1="12" x2="38" y2="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6ee7b7"/>
+      <stop offset="0.55" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#3b82f6"/>
+    </linearGradient>
+    <filter id="neonGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="1.2" result="b"/>
+      <feColorMatrix in="b" type="matrix"
+        values="1 0 0 0 0
+                0 1 0 0 0
+                0 0 1 0 0
+                0 0 0 0.55 0" result="g"/>
+      <feMerge>
+        <feMergeNode in="g"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Neon monogram X (transparent background; CSS provides the badge container) -->
+  <g fill="none" stroke-linecap="round" stroke-width="5" filter="url(#neonGlow)">
+    <path d="M15 15 L33 33" stroke="url(#neon)" opacity="0.95"/>
+    <path d="M33 15 L15 33" stroke="url(#neon)" opacity="0.95"/>
+  </g>
+
+  <!-- Crisp inner stroke so it doesn't look mushy at 48px -->
+  <g fill="none" stroke="#021127" stroke-linecap="round" stroke-width="2.2" opacity="0.55">
+    <path d="M15 15 L33 33"/>
+    <path d="M33 15 L15 33"/>
+  </g>
+</svg>

@@ -17,6 +17,8 @@
 
   let currentSrc = "";
   let isHidden = false;
+  let buttonsBySrc = new Map();
+  let lastSyncedSrc = "";
 
   const ICON = {
     play: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 3v18l15-9L5 3z" fill="currentColor"/></svg>',
@@ -63,6 +65,39 @@
     if (playerDownload) playerDownload.setAttribute("href", src);
   }
 
+  function indexListButtons() {
+    buttonsBySrc = new Map();
+    const btns = document.querySelectorAll(".play-btn");
+    for (const btn of btns) {
+      const src = btn.getAttribute("data-file") || "";
+      if (!src) continue;
+      const arr = buttonsBySrc.get(src) || [];
+      arr.push(btn);
+      buttonsBySrc.set(src, arr);
+    }
+  }
+
+  function setButtonsForSrc(src, { playing }) {
+    const arr = buttonsBySrc.get(src);
+    if (!arr) return;
+    for (const btn of arr) {
+      btn.innerHTML = playing ? ICON.pause : ICON.play;
+      btn.setAttribute("aria-label", playing ? "Пауза" : "Воспроизвести");
+      const item = btn.closest(".track-item");
+      if (item) item.classList.toggle("is-current", !!src && src === currentSrc);
+    }
+  }
+
+  function syncButtons() {
+    if (lastSyncedSrc && lastSyncedSrc !== currentSrc) {
+      setButtonsForSrc(lastSyncedSrc, { playing: false });
+    }
+    if (currentSrc) {
+      setButtonsForSrc(currentSrc, { playing: !player.paused && !player.ended });
+    }
+    lastSyncedSrc = currentSrc;
+  }
+
   if (playerPlay) playerPlay.innerHTML = ICON.play;
   if (playerMute) playerMute.innerHTML = ICON.volume;
   if (playerDownload) playerDownload.innerHTML = ICON.download + '<span style="margin-left:8px;font-weight:700;">Скачать</span>';
@@ -79,11 +114,27 @@
     if (!src) return;
 
     if (isHidden) showPlayer(false);
+
+    // Toggle: clicking current track pauses/resumes.
+    if (currentSrc === src && player.src) {
+      if (player.paused || player.ended) {
+        try {
+          await player.play();
+        } catch {}
+      } else {
+        player.pause();
+      }
+      showPlayer(false);
+      syncButtons();
+      return;
+    }
+
     setTrack({ src, title });
     try {
       await player.play();
     } catch {}
     showPlayer(false);
+    syncButtons();
   });
 
   if (playerOpen) playerOpen.addEventListener("click", () => showPlayer(false));
@@ -147,12 +198,33 @@
 
   player.addEventListener("play", () => {
     if (playerPlay) playerPlay.innerHTML = ICON.pause;
+    syncButtons();
   });
   player.addEventListener("pause", () => {
     if (playerPlay) playerPlay.innerHTML = ICON.play;
+    syncButtons();
   });
   player.addEventListener("ended", () => {
     if (playerPlay) playerPlay.innerHTML = ICON.play;
+    syncButtons();
   });
-})();
 
+  // Update play/pause icons after SPA renders lists.
+  window.addEventListener("spotx:render", () => {
+    indexListButtons();
+    // On each render set all buttons to "play" quickly, then restore current state.
+    for (const arr of buttonsBySrc.values()) {
+      for (const btn of arr) {
+        btn.innerHTML = ICON.play;
+        btn.setAttribute("aria-label", "Воспроизвести");
+        const item = btn.closest(".track-item");
+        if (item) item.classList.remove("is-current");
+      }
+    }
+    syncButtons();
+  });
+
+  // Initial state (for first load without SPA navigation).
+  indexListButtons();
+  syncButtons();
+})();
