@@ -104,6 +104,16 @@
     return el("header", { class: "header" }, [brand, el("div", { class: "header-actions" }, actions || [])]);
   }
 
+  function topNav(active) {
+    const mk = (href, label, key) =>
+      el(
+        "a",
+        { class: active === key ? "public-btn" : "small-btn", href, "data-link": "1" },
+        [label]
+      );
+    return [mk("/", "Главная", "home"), mk("/tracks", "Треки", "tracks")];
+  }
+
   function shell({ subtitle, actions, main, sidebar }) {
     const app = qs("#app");
     app.innerHTML = "";
@@ -147,26 +157,68 @@
     ]);
   }
 
+  function userSideCard() {
+    return el("div", { class: "card profile-header" }, [
+      el("div", { class: "avatar" }, [state.user ? String(state.user.name).slice(0, 1).toUpperCase() : "G"]),
+      el("div", {}, [
+        el("p", { class: "user-name" }, [state.user ? state.user.name : "Guest"]),
+        el("div", { class: "user-actions" }, [
+          state.user
+            ? el("a", { class: "small-btn", href: "/profile", "data-link": "1" }, ["Профиль"])
+            : el("a", { class: "small-btn", href: "/auth/login", "data-link": "1" }, ["Вход"]),
+          state.user
+            ? el("button", { class: "logout-btn", type: "button", onclick: logout }, ["Выйти"])
+            : el("a", { class: "small-btn", href: "/auth/register", "data-link": "1" }, ["Регистрация"]),
+        ]),
+      ]),
+    ]);
+  }
+
+  async function viewHome() {
+    document.title = "SpotX";
+
+    const lead = el("div", {}, [
+      el("h2", {}, ["SpotX"]),
+      el("p", { style: "margin-top:6px;color:var(--muted);line-height:1.5;" }, [
+        "Динамическое веб-приложение для публикации и прослушивания аудиотреков. ",
+        "Регистрируйтесь, загружайте свои треки и управляйте их доступностью.",
+      ]),
+    ]);
+
+    const features = el("div", { style: "margin-top:14px;" }, [
+      el("h3", {}, ["Возможности"]),
+      el("ul", { style: "margin-top:8px;color:var(--muted);line-height:1.6;padding-left:18px;" }, [
+        el("li", {}, ["Прослушивание публичных треков"]),
+        el("li", {}, ["Личный кабинет и управление приватностью"]),
+        el("li", {}, ["Загрузка аудиофайлов"]),
+        el("li", {}, ["Сессии и защита приватных разделов"]),
+      ]),
+    ]);
+
+    const ctas = el("div", { style: "margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;" }, [
+      el("a", { class: "public-btn", href: "/tracks", "data-link": "1" }, ["Перейти к трекам"]),
+      state.user
+        ? el("a", { class: "small-btn", href: "/profile", "data-link": "1" }, ["Открыть профиль"])
+        : el("a", { class: "small-btn", href: "/auth/login", "data-link": "1" }, ["Войти"]),
+    ]);
+
+    shell({
+      subtitle: "Главная",
+      actions: topNav("home"),
+      main: el("div", {}, [lead, features, ctas]),
+      sidebar: userSideCard(),
+    });
+  }
+
   async function viewPublic() {
-    document.title = "Публичные треки - SpotX";
+    document.title = "Треки - SpotX";
     const data = await apiJson("/api/tracks/public", { method: "GET" });
     state.publicTracks = Array.isArray(data.items) ? data.items : [];
 
     const list = el("div", { class: "tracks-list" }, state.publicTracks.map((t) => trackItem(t, { own: false })));
 
-    const main = el("div", {}, [el("h2", {}, ["Публичные треки"]), list]);
-    const side = el("div", { class: "card profile-header" }, [
-      el("div", { class: "avatar" }, [state.user ? String(state.user.name).slice(0, 1).toUpperCase() : "G"]),
-      el("div", {}, [
-        el("p", { class: "user-name" }, [state.user ? state.user.name : "Guest"]),
-        el("div", { class: "user-actions" }, [
-          state.user ? el("a", { class: "small-btn", href: "/profile", "data-link": "1" }, ["Профиль"]) : el("a", { class: "small-btn", href: "/auth/login", "data-link": "1" }, ["Вход"]),
-          state.user ? el("button", { class: "logout-btn", type: "button", onclick: logout }, ["Выйти"]) : el("a", { class: "small-btn", href: "/auth/register", "data-link": "1" }, ["Регистрация"]),
-        ]),
-      ]),
-    ]);
-
-    shell({ subtitle: "Публичные треки", actions: [el("a", { class: "public-btn", href: "/", "data-link": "1" }, ["Публичные треки"])], main, sidebar: side });
+    const main = el("div", {}, [el("h2", {}, ["Треки"]), list]);
+    shell({ subtitle: "Треки", actions: topNav("tracks"), main, sidebar: userSideCard() });
   }
 
   async function viewLogin() {
@@ -295,7 +347,7 @@
       ]),
     ]);
 
-    shell({ subtitle: "Профиль", actions: [el("a", { class: "public-btn", href: "/", "data-link": "1" }, ["Публичные треки"])], main, sidebar: side });
+    shell({ subtitle: "Профиль", actions: [el("a", { class: "public-btn", href: "/tracks", "data-link": "1" }, ["Треки"])], main, sidebar: side });
   }
 
   async function viewSettings() {
@@ -394,14 +446,15 @@
   async function renderRoute() {
     await loadMe();
     const path = window.location.pathname;
-    if (path === "/" || path === "/tracks") return viewPublic();
+    if (path === "/") return viewHome();
+    if (path === "/tracks") return viewPublic();
     if (path === "/auth/login") return viewLogin();
     if (path === "/auth/register") return viewRegister();
     if (path === "/auth/forgot-password") return viewForgot();
     if (path === "/profile") return viewProfile();
     if (path === "/profile/settings") return viewSettings();
     if (path === "/tracks/upload") return viewUpload();
-    return viewPublic();
+    return viewHome();
   }
 
   document.addEventListener("click", async (e) => {
@@ -431,4 +484,3 @@
   window.addEventListener("popstate", () => void renderRoute());
   void renderRoute();
 })();
-

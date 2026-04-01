@@ -19,6 +19,11 @@ def public_tracks(request: Request):
     return render_spa(request)
 
 
+@router.get("/tracks")
+def tracks_page(request: Request):
+    return render_spa(request)
+
+
 @router.get("/auth/register")
 def register_page(request: Request):
     return render_spa(request)
@@ -231,4 +236,3 @@ def toggle_privacy(track_id: int, request: Request, db: Session = Depends(get_db
 def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/", status_code=303)
-
