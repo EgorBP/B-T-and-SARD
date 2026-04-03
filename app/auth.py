@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import engine
-from models import User
+from models import Track, User
 
 from .context import pwd_context
 
@@ -65,20 +65,6 @@ def generate_recovery_phrase() -> str:
     return " ".join(secrets.choice(words) for _ in range(6))
 
 
-def ensure_user_columns() -> None:
-    with engine.begin() as connection:
-        result = connection.execute(text("PRAGMA table_info(users)"))
-        existing_columns = {row[1] for row in result}
-        if "recovery_phrase" not in existing_columns:
-            connection.execute(
-                text("ALTER TABLE users ADD COLUMN recovery_phrase VARCHAR DEFAULT '' NOT NULL")
-            )
-        if "avatar_filename" not in existing_columns:
-            connection.execute(
-                text("ALTER TABLE users ADD COLUMN avatar_filename VARCHAR")
-            )
-
-
 def do_register(db: Session, email: str, name: str, password: str) -> User:
     email = validate_email(email)
     name = validate_name(name)
@@ -126,4 +112,3 @@ def do_reset_password(db: Session, email: str, recovery_phrase: str, new_passwor
     db.commit()
     db.refresh(user)
     return user
-

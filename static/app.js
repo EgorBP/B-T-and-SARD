@@ -64,6 +64,18 @@
     return data;
   }
 
+  async function apiFormAny(url, method, formData) {
+    const res = await fetch(url, { method, body: formData });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = data?.detail || data?.message || "Request failed";
+      const err = new Error(msg);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
   function errorText(msg) {
     return el("p", { style: "margin-top:8px;color:#fca5a5;font-size:14px;" }, [msg]);
   }
@@ -94,6 +106,13 @@
     const d = new Date(value);
     if (isNaN(d.getTime())) return String(value);
     return d.toLocaleString("ru-RU", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function trackThumbNode(track) {
+    if (track?.coverFilename) {
+      return el("img", { class: "track-cover", src: `/media/${track.coverFilename}`, alt: `Обложка ${track.title || ""}` });
+    }
+    return el("div", { class: "track-thumb-text" }, [String(track?.title || "X").slice(0, 2).toUpperCase()]);
   }
 
   let modal = null;
@@ -274,7 +293,7 @@
     }
 
     return el("div", { class: "track-item" }, [
-      el("div", { class: "track-thumb" }, [String(track.title || "X").slice(0, 2).toUpperCase()]),
+      el("div", { class: "track-thumb" }, [trackThumbNode(track)]),
       el("div", { class: "track-details" }, [
         el("div", { class: "track-top" }, [
           el("p", { class: "track-title" }, [track.title || "Без названия"]),
@@ -591,9 +610,23 @@
     document.title = "Загрузка трека - SpotX";
     if (!state.user) return navigate("/auth/login", { replace: true });
     const title = el("input", { class: "input", placeholder: "Название трека", required: "1" });
+    const description = el("textarea", { class: "input textarea", placeholder: "Описание (необязательно)", rows: "4" });
+    const cover = el("input", { class: "file-input file-input-hidden", type: "file", accept: "image/*" });
     // Custom file picker UI (native input hidden).
     const file = el("input", { class: "file-input file-input-hidden", type: "file", accept: "audio/*" });
     const msg = el("div");
+
+    const coverName = el("div", { class: "avatar-file" }, ["Обложка не выбрана"]);
+    const coverPick = el("button", { class: "avatar-change-btn", type: "button", onclick: () => cover.click() }, ["Выбрать обложку"]);
+    const coverPreview = el("div", { class: "cover-preview" }, [el("div", { class: "cover-placeholder" }, ["No cover"])]);
+    cover.addEventListener("change", () => {
+      const f = cover.files && cover.files[0];
+      coverName.textContent = f ? f.name : "Обложка не выбрана";
+      if (!f) return;
+      const url = URL.createObjectURL(f);
+      coverPreview.innerHTML = "";
+      coverPreview.appendChild(el("img", { class: "cover-image", src: url, alt: "Обложка трека" }));
+    });
 
     const fileName = el("div", { class: "avatar-file" }, ["Файл не выбран"]);
     const pick = el("button", { class: "avatar-change-btn", type: "button", onclick: () => file.click() }, ["Выбрать аудио"]);
@@ -611,6 +644,15 @@
       el("p", { class: "field-help" }, ["Поддерживаются любые аудиофайлы, которые воспроизводит браузер (mp3/ogg/wav и т.д.)."]),
     ]);
 
+    const coverPicker = el("div", { class: "field" }, [
+      el("div", { class: "field-label" }, ["Обложка (необязательно)"]),
+      el("div", { class: "settings-avatar-row" }, [
+        coverPreview,
+        el("div", { style: "display:flex;flex-direction:column;gap:10px;" }, [coverPick, coverName]),
+      ]),
+      el("p", { class: "field-help" }, ["jpg/png/webp/gif."]),
+    ]);
+
     const form = el("form", {
       class: "upload-form",
       onsubmit: async (e) => {
@@ -621,7 +663,9 @@
 
         const fd = new FormData();
         fd.set("title", title.value.trim());
+        fd.set("description", (description.value || "").trim());
         fd.set("file", file.files[0]);
+        if (cover.files && cover.files[0]) fd.set("cover", cover.files[0]);
 
         try {
           await apiForm("/api/tracks/upload", fd);
@@ -633,7 +677,10 @@
       },
     }, [
       field("Название трека", title),
+      field("Описание", description, { help: "Будет показано в информации о треке." }),
+      coverPicker,
       filePicker,
+      cover,
       file,
       el("button", { class: "upload-btn", type: "submit" }, ["Загрузить"]),
       msg,
@@ -681,17 +728,65 @@
       if (!t) return;
       const isMine = scope === "mine";
 
+      const descText = (t.description || "").trim();
+      const coverNode = t.coverFilename
+        ? el("img", { class: "modal-cover", src: `/media/${t.coverFilename}`, alt: "Обложка трека" })
+        : el("div", { class: "modal-cover-placeholder" }, ["No cover"]);
+
+      let editSection = null;
+      if (isMine) {
+        const desc = el("textarea", { class: "input textarea", rows: "5", placeholder: "Описание", value: descText });
+        const cover = el("input", { class: "file-input file-input-hidden", type: "file", accept: "image/*" });
+        const coverName = el("div", { class: "avatar-file" }, ["Обложка не выбрана"]);
+        const pick = el("button", { class: "avatar-change-btn", type: "button", onclick: () => cover.click() }, ["Сменить обложку"]);
+        cover.addEventListener("change", () => {
+          const f = cover.files && cover.files[0];
+          coverName.textContent = f ? f.name : "Обложка не выбрана";
+        });
+        const saveMsg = el("div");
+        const save = el("button", { class: "upload-btn", type: "button" }, ["Сохранить"]);
+        save.addEventListener("click", async () => {
+          saveMsg.innerHTML = "";
+          const fd = new FormData();
+          fd.set("description", (desc.value || "").trim());
+          if (cover.files && cover.files[0]) fd.set("cover", cover.files[0]);
+          try {
+            const res = await apiFormAny(`/api/tracks/${t.id}`, "PATCH", fd);
+            const updated = res?.track;
+            if (updated) {
+              Object.assign(t, updated);
+              // Refresh list UI to show cover/description changes.
+              if (scope === "mine") await viewProfile();
+              else await viewPublic();
+            }
+            saveMsg.appendChild(infoText("Сохранено"));
+          } catch (err) {
+            saveMsg.appendChild(errorText(err.message || "Ошибка"));
+          }
+        });
+        editSection = el("div", { style: "margin-top:14px;" }, [
+          el("h4", { style: "margin:0 0 10px 0;" }, ["Редактирование"]),
+          field("Описание", desc),
+          el("div", { class: "settings-avatar-row" }, [pick, coverName]),
+          cover,
+          el("div", { style: "margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;" }, [save, saveMsg]),
+        ]);
+      }
+
       showModal(
         el("div", {}, [
           el("h3", { style: "margin-top:0;margin-bottom:10px;" }, ["Информация о треке"]),
+          el("div", { class: "modal-cover-wrap" }, [coverNode]),
           el("div", { class: "info-grid" }, [
             el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Название"]), el("div", { class: "info-v" }, [t.title || "—"])]),
             el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Файл"]), el("div", { class: "info-v" }, [t.filename || "—"])]),
             el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Дата"]), el("div", { class: "info-v" }, [t.createdAt ? fmtDate(t.createdAt) : "—"])]),
+            el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Описание"]), el("div", { class: "info-v" }, [descText || "—"])]),
             isMine
               ? el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Доступ"]), el("div", { class: "info-v" }, [t.is_public ? "Публичный" : "Приватный"])])
               : el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Автор"]), el("div", { class: "info-v" }, [t.owner_name || "—"])]),
           ]),
+          editSection,
           el("div", { style: "margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;" }, [
             el("a", { class: "public-btn", href: `/media/${t.filename}`, download: "1" }, ["Скачать файл"]),
             el("button", { class: "small-btn", type: "button", onclick: () => hideModal() }, ["Закрыть"]),
@@ -705,7 +800,6 @@
     if (delBtn) {
       const id = delBtn.getAttribute("data-track-id");
       if (!id) return;
-      if (!confirm("Удалить трек? Это действие нельзя отменить.")) return;
       try {
         await apiJson(`/api/tracks/${id}`, { method: "DELETE" });
         await viewProfile();

@@ -23,6 +23,8 @@ class Track(Base):
     id = Column(Integer, primary_key=True)
     title = Column(String, nullable=False)
     filename = Column(String, nullable=False)
+    cover_filename = Column(String, nullable=True)
+    description = Column(String, nullable=False, default="")
     is_public = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(), server_default=func.now(), nullable=False)
 

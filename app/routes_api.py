@@ -92,6 +92,8 @@ def public_tracks_api(db: Session = Depends(get_db)):
                 "id": t.id,
                 "title": t.title,
                 "filename": t.filename,
+                "coverFilename": t.cover_filename,
+                "description": t.description,
                 "is_public": bool(t.is_public),
                 "createdAt": t.created_at,
                 "owner_id": t.owner_id,
@@ -110,6 +112,8 @@ def my_tracks_api(request: Request, db: Session = Depends(get_db)):
             "id": t.id,
             "title": t.title,
             "filename": t.filename,
+            "coverFilename": t.cover_filename,
+            "description": t.description,
             "is_public": bool(t.is_public),
             "createdAt": t.created_at,
         }
@@ -171,7 +175,9 @@ def profile_settings_post_api(
 def upload_track_api(
     request: Request,
     title: str = Form(...),
+    description: str = Form(""),
     file: UploadFile = File(...),
+    cover: UploadFile = File(None),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -179,8 +185,18 @@ def upload_track_api(
     if not title:
         raise HTTPException(status_code=422, detail="Название трека обязательно")
 
+    description = (description or "").strip()
+    if len(description) > 2000:
+        raise HTTPException(status_code=422, detail="Описание слишком длинное (макс 2000 символов)")
+
     stored_filename = save_uploaded_file(file, "track")
+    cover_filename = None
+    if cover and cover.filename:
+        cover_filename = save_uploaded_file(cover, "cover")
+
     track = Track(title=title, filename=stored_filename, is_public=False, owner_id=user.id)
+    track.description = description
+    track.cover_filename = cover_filename
     db.add(track)
     db.commit()
     db.refresh(track)
@@ -190,6 +206,48 @@ def upload_track_api(
             "id": track.id,
             "title": track.title,
             "filename": track.filename,
+            "coverFilename": track.cover_filename,
+            "description": track.description,
+            "is_public": bool(track.is_public),
+            "createdAt": track.created_at,
+        },
+    }
+
+
+@router.patch("/api/tracks/{track_id}")
+def update_track_api(
+    track_id: int,
+    request: Request,
+    description: str = Form(None),
+    cover: UploadFile = File(None),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    track = db.get(Track, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Трек не найден")
+    if track.owner_id != user.id:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    if description is not None:
+        desc = (description or "").strip()
+        if len(desc) > 2000:
+            raise HTTPException(status_code=422, detail="Описание слишком длинное (макс 2000 символов)")
+        track.description = desc
+
+    if cover and cover.filename:
+        track.cover_filename = save_uploaded_file(cover, "cover")
+
+    db.commit()
+    db.refresh(track)
+    return {
+        "ok": True,
+        "track": {
+            "id": track.id,
+            "title": track.title,
+            "filename": track.filename,
+            "coverFilename": track.cover_filename,
+            "description": track.description,
             "is_public": bool(track.is_public),
             "createdAt": track.created_at,
         },
@@ -206,6 +264,7 @@ def delete_track_api(track_id: int, request: Request, db: Session = Depends(get_
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     filename = track.filename or ""
+    cover_filename = track.cover_filename or ""
     db.delete(track)
     db.commit()
 
@@ -214,6 +273,13 @@ def delete_track_api(track_id: int, request: Request, db: Session = Depends(get_
     if safe_name and safe_name == filename:
         try:
             os.remove(os.path.join(MEDIA_PATH, safe_name))
+        except OSError:
+            pass
+
+    safe_cover = os.path.basename(cover_filename)
+    if safe_cover and safe_cover == cover_filename:
+        try:
+            os.remove(os.path.join(MEDIA_PATH, safe_cover))
         except OSError:
             pass
 
