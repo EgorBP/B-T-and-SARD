@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
@@ -15,7 +17,7 @@ from .auth import (
     validate_password,
     validate_recovery_phrase,
 )
-from .context import pwd_context
+from .context import MEDIA_PATH, pwd_context
 from .deps import get_current_user, get_db, require_user
 from .storage import save_uploaded_file
 
@@ -91,6 +93,7 @@ def public_tracks_api(db: Session = Depends(get_db)):
                 "title": t.title,
                 "filename": t.filename,
                 "is_public": bool(t.is_public),
+                "createdAt": t.created_at,
                 "owner_id": t.owner_id,
                 "owner_name": t.owner.name if t.owner else None,
             }
@@ -102,7 +105,16 @@ def public_tracks_api(db: Session = Depends(get_db)):
 def my_tracks_api(request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
     tracks = db.query(Track).filter(Track.owner_id == user.id).all()
-    items = [{"id": t.id, "title": t.title, "filename": t.filename, "is_public": bool(t.is_public)} for t in tracks]
+    items = [
+        {
+            "id": t.id,
+            "title": t.title,
+            "filename": t.filename,
+            "is_public": bool(t.is_public),
+            "createdAt": t.created_at,
+        }
+        for t in tracks
+    ]
     return {"items": items}
 
 
@@ -174,5 +186,35 @@ def upload_track_api(
     db.refresh(track)
     return {
         "ok": True,
-        "track": {"id": track.id, "title": track.title, "filename": track.filename, "is_public": bool(track.is_public)},
+        "track": {
+            "id": track.id,
+            "title": track.title,
+            "filename": track.filename,
+            "is_public": bool(track.is_public),
+            "createdAt": track.created_at,
+        },
     }
+
+
+@router.delete("/api/tracks/{track_id}")
+def delete_track_api(track_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    track = db.get(Track, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Трек не найден")
+    if track.owner_id != user.id:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    filename = track.filename or ""
+    db.delete(track)
+    db.commit()
+
+    # Best-effort file cleanup.
+    safe_name = os.path.basename(filename)
+    if safe_name and safe_name == filename:
+        try:
+            os.remove(os.path.join(MEDIA_PATH, safe_name))
+        except OSError:
+            pass
+
+    return {"ok": True}

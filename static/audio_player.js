@@ -226,5 +226,11 @@
 
   // Initial state (for first load without SPA navigation).
   indexListButtons();
+  for (const arr of buttonsBySrc.values()) {
+    for (const btn of arr) {
+      btn.innerHTML = ICON.play;
+      btn.setAttribute("aria-label", "Воспроизвести");
+    }
+  }
   syncButtons();
 })();

@@ -76,6 +76,65 @@
     return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((email || "").trim().toLowerCase());
   }
 
+  const ICON = {
+    info:
+      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 17v-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 8h.01" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="1.4" opacity="0.9"/></svg>',
+    download:
+      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v10M7 8l5 5 5-5M5 21h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    trash:
+      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 3h6m-8 4h10m-9 0l1 14h6l1-14M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    lock:
+      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 11V8a5 5 0 0110 0v3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M7 11h10v10H7V11z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+    unlock:
+      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17 11V8a5 5 0 00-9.6-2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M7 11h10v10H7V11z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+  };
+
+  function fmtDate(value) {
+    if (!value) return "";
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return String(value);
+    return d.toLocaleString("ru-RU", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+
+  let modal = null;
+  function ensureModal() {
+    if (modal) return modal;
+    const overlay = el("div", { class: "modal-overlay", "aria-hidden": "true" });
+    const dialog = el("div", { class: "modal", role: "dialog", "aria-modal": "true" });
+    const close = el("button", { class: "modal-close", type: "button", "aria-label": "Закрыть", html: "✕" });
+    const body = el("div", { class: "modal-body" });
+
+    close.addEventListener("click", () => hideModal());
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) hideModal();
+    });
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") hideModal();
+    });
+
+    dialog.appendChild(close);
+    dialog.appendChild(body);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    modal = { overlay, body };
+    return modal;
+  }
+
+  function showModal(node) {
+    const m = ensureModal();
+    m.body.innerHTML = "";
+    m.body.appendChild(node);
+    m.overlay.classList.add("active");
+    m.overlay.setAttribute("aria-hidden", "false");
+  }
+
+  function hideModal() {
+    if (!modal) return;
+    modal.overlay.classList.remove("active");
+    modal.overlay.setAttribute("aria-hidden", "true");
+    modal.body.innerHTML = "";
+  }
+
   async function loadMe() {
     if (state.userLoaded) return state.user;
     try {
@@ -157,10 +216,11 @@
     } catch {}
   }
 
-  function trackItem(track, { own } = {}) {
+  function trackItem(track, { own, scope } = {}) {
     const buttons = [];
-    buttons.push(el("button", { class: "play-btn", type: "button", "data-file": `/media/${track.filename}`, "data-title": track.title }, ["▶"]));
-    buttons.push(el("a", { class: "download-btn", href: `/media/${track.filename}`, download: "1" }, ["⬇"]));
+    buttons.push(
+      el("button", { class: "icon-btn play-btn", type: "button", "data-file": `/media/${track.filename}`, "data-title": track.title, "aria-label": "Воспроизвести" }, [])
+    );
     if (own) {
       buttons.push(
         el(
@@ -171,7 +231,44 @@
             "data-action": "toggle-privacy",
             "data-track-id": String(track.id),
           },
-          [track.is_public ? "Сделать приватным" : "Сделать публичным"]
+          [
+            el("span", { class: "pill-icon", html: track.is_public ? ICON.unlock : ICON.lock }, []),
+            el("span", { class: "pill-text" }, [track.is_public ? "Публичный" : "Приватный"]),
+          ]
+        )
+      );
+    }
+    buttons.push(
+      el("a", { class: "icon-btn download-btn", href: `/media/${track.filename}`, download: "1", "aria-label": "Скачать", html: ICON.download }, [])
+    );
+    buttons.push(
+      el(
+        "button",
+        {
+          class: "icon-btn info-btn",
+          type: "button",
+          "data-action": "track-info",
+          "data-track-id": String(track.id),
+          "data-scope": scope || (own ? "mine" : "public"),
+          "aria-label": "Информация",
+          html: ICON.info,
+        },
+        []
+      )
+    );
+    if (own) {
+      buttons.push(
+        el(
+          "button",
+          {
+            class: "icon-btn danger-btn",
+            type: "button",
+            "data-action": "track-delete",
+            "data-track-id": String(track.id),
+            "aria-label": "Удалить",
+            html: ICON.trash,
+          },
+          []
         )
       );
     }
@@ -179,11 +276,14 @@
     return el("div", { class: "track-item" }, [
       el("div", { class: "track-thumb" }, [String(track.title || "X").slice(0, 2).toUpperCase()]),
       el("div", { class: "track-details" }, [
-        el("p", { class: "track-title" }, [track.title || "Без названия"]),
-        el("p", { class: "track-meta" }, [
-          own ? (track.is_public ? "Публичный" : "Приватный") : track.owner_name ? `by ${track.owner_name}` : "uploaded",
+        el("div", { class: "track-top" }, [
+          el("p", { class: "track-title" }, [track.title || "Без названия"]),
+          el("div", { class: "track-actions" }, buttons),
         ]),
-        el("div", { class: "track-buttons" }, buttons),
+        el("p", { class: "track-meta" }, [
+          own ? "Ваш трек" : track.owner_name ? `by ${track.owner_name}` : "uploaded",
+          track.createdAt ? ` • ${fmtDate(track.createdAt)}` : "",
+        ]),
       ]),
     ]);
   }
@@ -246,7 +346,7 @@
     const data = await apiJson("/api/tracks/public", { method: "GET" });
     state.publicTracks = Array.isArray(data.items) ? data.items : [];
 
-    const list = el("div", { class: "tracks-list" }, state.publicTracks.map((t) => trackItem(t, { own: false })));
+    const list = el("div", { class: "tracks-list" }, state.publicTracks.map((t) => trackItem(t, { own: false, scope: "public" })));
 
     const main = el("div", {}, [el("h2", {}, ["Треки"]), list]);
     shell({ subtitle: "Треки", actions: topNav("tracks"), main, sidebar: userSideCard() });
@@ -288,6 +388,7 @@
     const email = el("input", { class: "input", type: "email", placeholder: "Email", required: "1" });
     const name = el("input", { class: "input", placeholder: "Имя", required: "1" });
     const password = el("input", { class: "input", type: "password", placeholder: "Пароль (мин. 6)", required: "1" });
+    const password2 = el("input", { class: "input", type: "password", placeholder: "Повторите пароль", required: "1" });
     const msg = el("div");
 
     const form = el("form", {
@@ -298,17 +399,17 @@
         if (!validateEmail(email.value)) return msg.appendChild(errorText("Введите корректный email"));
         if ((name.value || "").trim().length < 2) return msg.appendChild(errorText("Имя должно содержать минимум 2 символа"));
         if ((password.value || "").length < 6) return msg.appendChild(errorText("Пароль должен быть не короче 6 символов"));
+        if (password.value !== password2.value) return msg.appendChild(errorText("Пароли не совпадают"));
         try {
           const data = await apiJson("/api/auth/register", { method: "POST", body: JSON.stringify({ email: email.value, name: name.value, password: password.value }) });
           state.user = { id: data.id, email: data.email, name: data.name, createdAt: data.createdAt, avatarFilename: data.avatarFilename || null };
           state.userLoaded = true;
-          msg.appendChild(infoText("Успешно. Секретная фраза доступна в настройках профиля."));
-          msg.appendChild(el("div", { style: "margin-top:10px;" }, [el("a", { class: "public-btn", href: "/profile", "data-link": "1" }, ["Перейти в профиль"])]));
+          navigate("/profile");
         } catch (err) {
           msg.appendChild(errorText(err.message || "Ошибка регистрации"));
         }
       },
-    }, [email, name, password, el("button", { class: "upload-btn", type: "submit" }, ["Зарегистрироваться"]), msg]);
+    }, [email, name, password, password2, el("button", { class: "upload-btn", type: "submit" }, ["Зарегистрироваться"]), msg]);
 
     shell({
       subtitle: "Регистрация",
@@ -323,6 +424,7 @@
     const email = el("input", { class: "input", type: "email", placeholder: "Email", required: "1" });
     const phrase = el("input", { class: "input", placeholder: "Секретная фраза", required: "1" });
     const password = el("input", { class: "input", type: "password", placeholder: "Новый пароль (мин. 6)", required: "1" });
+    const password2 = el("input", { class: "input", type: "password", placeholder: "Повторите новый пароль", required: "1" });
     const msg = el("div");
 
     const form = el("form", {
@@ -333,6 +435,7 @@
         if (!validateEmail(email.value)) return msg.appendChild(errorText("Введите корректный email"));
         if ((phrase.value || "").trim().length < 10) return msg.appendChild(errorText("Секретная фраза слишком короткая"));
         if ((password.value || "").length < 6) return msg.appendChild(errorText("Пароль должен быть не короче 6 символов"));
+        if (password.value !== password2.value) return msg.appendChild(errorText("Пароли не совпадают"));
         try {
           await apiJson("/api/auth/reset-password", { method: "POST", body: JSON.stringify({ email: email.value, recoveryPhrase: phrase.value, newPassword: password.value }) });
           msg.appendChild(infoText("Пароль изменен. Теперь войдите."));
@@ -341,7 +444,7 @@
           msg.appendChild(errorText(err.message || "Ошибка"));
         }
       },
-    }, [email, phrase, password, el("button", { class: "upload-btn", type: "submit" }, ["Сменить пароль"]), msg]);
+    }, [email, phrase, password, password2, el("button", { class: "upload-btn", type: "submit" }, ["Сменить пароль"]), msg]);
 
     shell({
       subtitle: "Восстановление пароля",
@@ -357,7 +460,7 @@
     const data = await apiJson("/api/tracks/mine", { method: "GET" });
     state.myTracks = Array.isArray(data.items) ? data.items : [];
 
-    const list = el("div", { class: "tracks-list" }, state.myTracks.map((t) => trackItem(t, { own: true })));
+    const list = el("div", { class: "tracks-list" }, state.myTracks.map((t) => trackItem(t, { own: true, scope: "mine" })));
     const main = el("div", {}, [el("h2", {}, ["Ваши треки"]), list]);
 
     const side = el("div", {}, [
@@ -391,6 +494,7 @@
     const name = el("input", { id: "settings-name", class: "input", placeholder: "Ваше имя", value: data.name || "" });
     const phrase = el("input", { id: "settings-phrase", class: "input", placeholder: "Например: atlas forest river ...", value: data.recoveryPhrase || "" });
     const pass = el("input", { id: "settings-pass", class: "input", type: "password", placeholder: "Оставьте пустым, если не меняете" });
+    const pass2 = el("input", { id: "settings-pass2", class: "input", type: "password", placeholder: "Повторите новый пароль" });
     const avatar = el("input", { id: "settings-avatar", class: "file-input file-input-hidden", type: "file", accept: "image/*" });
     const msg = el("div");
 
@@ -443,6 +547,7 @@
         if ((name.value || "").trim().length < 2) return msg.appendChild(errorText("Имя должно содержать минимум 2 символа"));
         if ((phrase.value || "").trim().length < 10) return msg.appendChild(errorText("Секретная фраза слишком короткая"));
         if (pass.value && pass.value.length < 6) return msg.appendChild(errorText("Пароль должен быть не короче 6 символов"));
+        if (pass.value && pass.value !== pass2.value) return msg.appendChild(errorText("Пароли не совпадают"));
 
         const fd = new FormData();
         fd.set("email", email.value);
@@ -469,6 +574,7 @@
       field("Имя", name),
       field("Секретная фраза", phrase, { help: "Нужна для восстановления пароля. Храните в надежном месте." }),
       field("Новый пароль", pass, { help: "Минимум 6 символов. Оставьте пустым, если не меняете." }),
+      field("Повторите новый пароль", pass2),
       el("button", { class: "upload-btn", type: "submit" }, ["Сохранить изменения"]),
       msg,
     ]);
@@ -564,6 +670,49 @@
         navigate(path);
         return;
       }
+    }
+
+    const infoBtn = e.target.closest("button[data-action='track-info']");
+    if (infoBtn) {
+      const id = Number(infoBtn.getAttribute("data-track-id") || "0");
+      const scope = infoBtn.getAttribute("data-scope") || "public";
+      const list = scope === "mine" ? state.myTracks : state.publicTracks;
+      const t = list.find((x) => Number(x.id) === id);
+      if (!t) return;
+      const isMine = scope === "mine";
+
+      showModal(
+        el("div", {}, [
+          el("h3", { style: "margin-top:0;margin-bottom:10px;" }, ["Информация о треке"]),
+          el("div", { class: "info-grid" }, [
+            el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Название"]), el("div", { class: "info-v" }, [t.title || "—"])]),
+            el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Файл"]), el("div", { class: "info-v" }, [t.filename || "—"])]),
+            el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Дата"]), el("div", { class: "info-v" }, [t.createdAt ? fmtDate(t.createdAt) : "—"])]),
+            isMine
+              ? el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Доступ"]), el("div", { class: "info-v" }, [t.is_public ? "Публичный" : "Приватный"])])
+              : el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Автор"]), el("div", { class: "info-v" }, [t.owner_name || "—"])]),
+          ]),
+          el("div", { style: "margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;" }, [
+            el("a", { class: "public-btn", href: `/media/${t.filename}`, download: "1" }, ["Скачать файл"]),
+            el("button", { class: "small-btn", type: "button", onclick: () => hideModal() }, ["Закрыть"]),
+          ]),
+        ])
+      );
+      return;
+    }
+
+    const delBtn = e.target.closest("button[data-action='track-delete']");
+    if (delBtn) {
+      const id = delBtn.getAttribute("data-track-id");
+      if (!id) return;
+      if (!confirm("Удалить трек? Это действие нельзя отменить.")) return;
+      try {
+        await apiJson(`/api/tracks/${id}`, { method: "DELETE" });
+        await viewProfile();
+      } catch (err) {
+        alert(err.message || "Ошибка");
+      }
+      return;
     }
 
     const btn = e.target.closest("button[data-action='toggle-privacy']");
