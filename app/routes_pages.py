@@ -190,9 +190,18 @@ def upload_page(request: Request, db: Session = Depends(get_db)):
     return render_spa(request)
 
 
-@router.get("/media/{filename}")
-def media(filename: str):
-    return FileResponse(os.path.join(MEDIA_PATH, filename))
+@router.get("/media/{path:path}")
+def media(path: str):
+    # Allow nested paths like "avatars/..." or "tracks/...".
+    safe = os.path.normpath(path).replace("\\", "/").lstrip("/")
+    if safe in (".", "") or safe.startswith("..") or "/.." in safe:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    base = os.path.abspath(MEDIA_PATH)
+    full = os.path.abspath(os.path.join(base, *safe.split("/")))
+    if os.path.commonpath([base, full]) != base or not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(full)
 
 
 @router.post("/upload")

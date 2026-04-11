@@ -288,18 +288,22 @@ def delete_track_api(track_id: int, request: Request, db: Session = Depends(get_
     db.commit()
 
     # Best-effort file cleanup.
-    safe_name = os.path.basename(filename)
-    if safe_name and safe_name == filename:
+    def try_remove(rel_path: str) -> None:
+        if not rel_path:
+            return
+        safe = os.path.normpath(rel_path).replace("\\", "/").lstrip("/")
+        if safe in (".", "") or safe.startswith("..") or "/.." in safe:
+            return
+        base = os.path.abspath(MEDIA_PATH)
+        full = os.path.abspath(os.path.join(base, *safe.split("/")))
+        if os.path.commonpath([base, full]) != base:
+            return
         try:
-            os.remove(os.path.join(MEDIA_PATH, safe_name))
+            os.remove(full)
         except OSError:
             pass
 
-    safe_cover = os.path.basename(cover_filename)
-    if safe_cover and safe_cover == cover_filename:
-        try:
-            os.remove(os.path.join(MEDIA_PATH, safe_cover))
-        except OSError:
-            pass
+    try_remove(filename)
+    try_remove(cover_filename)
 
     return {"ok": True}

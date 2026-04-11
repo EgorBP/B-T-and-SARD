@@ -277,6 +277,21 @@ body{
   justify-content:space-between;
   margin-top:6px;
 }
+.user-actions .small-btn,
+.user-actions .logout-btn,
+.sidebar-stack .public-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  height:40px;
+  padding:0 14px;
+  font-size:15px;
+  font-weight:700;
+  letter-spacing:0.2px;
+  border-radius:12px;
+  line-height:1;
+  box-sizing:border-box;
+}
 .settings-btn{
   align-self:flex-start;
 }
