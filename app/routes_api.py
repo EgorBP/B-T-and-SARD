@@ -218,7 +218,9 @@ def upload_track_api(
 def update_track_api(
     track_id: int,
     request: Request,
+    title: str | None = Form(None),
     description: str = Form(None),
+    is_public: str | None = Form(None),
     cover: UploadFile = File(None),
     db: Session = Depends(get_db),
 ):
@@ -229,11 +231,28 @@ def update_track_api(
     if track.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
+    if title is not None:
+        new_title = (title or "").strip()
+        if not new_title:
+            raise HTTPException(status_code=422, detail="Название трека обязательно")
+        if len(new_title) > 200:
+            raise HTTPException(status_code=422, detail="Название слишком длинное (макс 200 символов)")
+        track.title = new_title
+
     if description is not None:
         desc = (description or "").strip()
         if len(desc) > 2000:
             raise HTTPException(status_code=422, detail="Описание слишком длинное (макс 2000 символов)")
         track.description = desc
+
+    if is_public is not None:
+        v = (is_public or "").strip().lower()
+        if v in ("1", "true", "yes", "on"):
+            track.is_public = True
+        elif v in ("0", "false", "no", "off"):
+            track.is_public = False
+        else:
+            raise HTTPException(status_code=422, detail="Некорректное значение приватности")
 
     if cover and cover.filename:
         track.cover_filename = save_uploaded_file(cover, "cover")

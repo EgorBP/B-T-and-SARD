@@ -468,9 +468,13 @@
     state.myTracks = Array.isArray(data.items) ? data.items : [];
 
     const list = el("div", { class: "tracks-list" }, state.myTracks.map((t) => trackItem(t, { own: true, scope: "mine" })));
-    const main = el("div", {}, [el("h2", {}, ["Ваши треки"]), list]);
+    const head = el("div", { class: "section-head" }, [
+      el("h2", { class: "section-title" }, ["Ваши треки"]),
+      el("div", { class: "section-count" }, [`${state.myTracks.length} треков`]),
+    ]);
+    const main = el("div", {}, [head, list]);
 
-    const side = el("div", {}, [
+    const side = el("div", { class: "sidebar-stack" }, [
       el("div", { class: "card profile-header" }, [
         avatarLinkNode(state.user),
         el("div", {}, [
@@ -704,8 +708,29 @@
       return;
     }
 
+    const title = el("input", { class: "input", placeholder: "Название трека", value: (t.title || "").trim() });
     const description = el("textarea", { class: "input textarea", rows: "6", placeholder: "Описание", value: (t.description || "").trim() });
     const cover = el("input", { class: "file-input file-input-hidden", type: "file", accept: "image/*" });
+
+    let isPublic = !!t.is_public;
+    const privacyIcon = el("span", { class: "pill-icon", html: isPublic ? ICON.unlock : ICON.lock }, []);
+    const privacyText = el("span", { class: "pill-text" }, [isPublic ? "Публичный" : "Приватный"]);
+    const privacyBtn = el(
+      "button",
+      {
+        type: "button",
+        class: `privacy-btn ${isPublic ? "privacy-public" : "privacy-private"}`,
+        title: isPublic ? "Публичный" : "Приватный",
+        onclick: () => {
+          isPublic = !isPublic;
+          privacyBtn.className = `privacy-btn ${isPublic ? "privacy-public" : "privacy-private"}`;
+          privacyIcon.innerHTML = isPublic ? ICON.unlock : ICON.lock;
+          privacyText.textContent = isPublic ? "Публичный" : "Приватный";
+          privacyBtn.title = isPublic ? "Публичный" : "Приватный";
+        },
+      },
+      [privacyIcon, privacyText]
+    );
 
     const coverName = el("div", { class: "avatar-file" }, ["Обложка не выбрана"]);
     const coverPick = el("button", { class: "avatar-change-btn", type: "button", onclick: () => cover.click() }, ["Сменить обложку"]);
@@ -723,7 +748,7 @@
 
     const msg = el("div");
     const save = el("button", { class: "upload-btn", type: "submit" }, ["Сохранить"]);
-    const del = el("button", { class: "logout-btn", type: "button" }, ["Удалить трек"]);
+    const del = el("button", { class: "logout-btn", type: "button", style: "margin-left:auto;" }, ["Удалить трек"]);
 
     del.addEventListener("click", async () => {
       try {
@@ -740,14 +765,26 @@
       onsubmit: async (e) => {
         e.preventDefault();
         msg.innerHTML = "";
+        const titleVal = (title.value || "").trim();
+        if (!titleVal) {
+          msg.appendChild(errorText("Название трека обязательно"));
+          return;
+        }
         const fd = new FormData();
+        fd.set("title", titleVal);
         fd.set("description", (description.value || "").trim());
+        fd.set("is_public", isPublic ? "true" : "false");
         if (cover.files && cover.files[0]) fd.set("cover", cover.files[0]);
         try {
           const res = await apiFormAny(`/api/tracks/${t.id}`, "PATCH", fd);
           const updated = res?.track;
           if (updated) {
             Object.assign(t, updated);
+            isPublic = !!t.is_public;
+            privacyBtn.className = `privacy-btn ${isPublic ? "privacy-public" : "privacy-private"}`;
+            privacyIcon.innerHTML = isPublic ? ICON.unlock : ICON.lock;
+            privacyText.textContent = isPublic ? "Публичный" : "Приватный";
+            privacyBtn.title = isPublic ? "Публичный" : "Приватный";
             if (t.coverFilename) {
               coverPreview.innerHTML = "";
               coverPreview.appendChild(el("img", { class: "cover-image", src: `/media/${t.coverFilename}`, alt: "Обложка трека" }));
@@ -760,13 +797,18 @@
       },
     }, [
       el("h2", { style: "margin-top:0;" }, ["Изменить трек"]),
+      field("Название", title),
+      el("div", { class: "field" }, [
+        el("div", { class: "field-label" }, ["Доступ"]),
+        el("div", { style: "display:flex;gap:10px;flex-wrap:wrap;align-items:center;" }, [privacyBtn, el("span", { style: "color:var(--muted);font-size:13px;" }, ["(нажмите, чтобы переключить)"])]),
+      ]),
       field("Описание", description),
       el("div", { class: "field" }, [
         el("div", { class: "field-label" }, ["Обложка"]),
         el("div", { class: "settings-avatar-row" }, [coverPreview, el("div", { style: "display:flex;flex-direction:column;gap:10px;" }, [coverPick, coverName])]),
       ]),
       cover,
-      el("div", { style: "margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;" }, [save, del]),
+      el("div", { style: "margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;" }, [save, del]),
       msg,
     ]);
 
@@ -775,7 +817,7 @@
       actions: topNav("profile"),
       main: form,
       sidebar: el("div", { class: "card" }, [
-        infoText("Изменения применяются только к вашим трекам. Приватность переключается в профиле."),
+        infoText("Изменения применяются только к вашим трекам."),
         el("a", { class: "small-btn", href: "/profile", "data-link": "1" }, ["Назад в профиль"]),
       ]),
     });
@@ -821,6 +863,7 @@
       const path = sameOriginPath(a.getAttribute("href") || "");
       if (path) {
         e.preventDefault();
+        hideModal();
         navigate(path);
         return;
       }
@@ -859,27 +902,32 @@
       showModal(
         el("div", {}, [
           el("h3", { style: "margin-top:0;margin-bottom:10px;" }, ["Информация о треке"]),
-          el("div", { class: "modal-cover-wrap" }, [coverNode]),
-          el("div", { class: "info-grid" }, [
-            el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Название"]), el("div", { class: "info-v" }, [t.title || "—"])]),
-            el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Файл"]), el("div", { class: "info-v" }, [t.filename || "—"])]),
-            el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Дата"]), el("div", { class: "info-v" }, [t.createdAt ? fmtDate(t.createdAt) : "—"])]),
-            el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Описание"]), el("div", { class: "info-v" }, [descText || "—"])]),
-            isMine
-              ? el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Доступ"]), el("div", { class: "info-v" }, [t.is_public ? "Публичный" : "Приватный"])])
-              : el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Автор"]), el("div", { class: "info-v" }, [t.owner_name || "—"])]),
-          ]),
-          el("div", { class: "modal-actions" }, [
-            el("div", { class: "modal-actions-left" }, [
-              el("a", { class: "public-btn", href: `/media/${t.filename}`, download: "1" }, ["Скачать файл"]),
+          el("div", { class: "track-info-top" }, [
+            el("div", { class: "track-info-cover" }, [coverNode]),
+            el("div", { class: "track-info-main" }, [
+              el("div", { class: "info-section-title" }, ["Основное"]),
+              el("div", { class: "info-grid" }, [
+                el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Название"]), el("div", { class: "info-v" }, [t.title || "—"])]),
+                el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Дата загрузки"]), el("div", { class: "info-v" }, [t.createdAt ? fmtDate(t.createdAt) : "—"])]),
+                isMine
+                  ? el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Доступ"]), el("div", { class: "info-v" }, [t.is_public ? "Публичный" : "Приватный"])])
+                  : el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Автор"]), el("div", { class: "info-v" }, [t.owner_name || "—"])]),
+              ]),
             ]),
-            isMine
-              ? el("div", { class: "modal-actions-right" }, [
-                  el("a", { class: "small-btn", href: `/tracks/${t.id}/edit`, "data-link": "1" }, ["Изменить"]),
-                  deleteBtn,
-                ])
-              : null,
           ]),
+          el("div", { class: "info-section-title" }, ["Описание"]),
+          el("div", { class: "info-desc" }, [descText || "—"]),
+          isMine
+            ? el("div", { class: "modal-actions" }, [
+                el("div", { class: "modal-actions-left" }, [
+                  el("a", { class: "public-btn", href: `/media/${t.filename}`, download: "1" }, ["Скачать файл"]),
+                ]),
+                el("div", { class: "modal-actions-right" }, [
+                  el("a", { class: "small-btn edit-btn", href: `/tracks/${t.id}/edit`, "data-link": "1" }, ["Изменить"]),
+                  deleteBtn,
+                ]),
+              ])
+            : null,
         ])
       );
       return;
