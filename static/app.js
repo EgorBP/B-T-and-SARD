@@ -241,6 +241,7 @@
       el("button", { class: "icon-btn play-btn", type: "button", "data-file": `/media/${track.filename}`, "data-title": track.title, "aria-label": "Воспроизвести" }, [])
     );
     if (own) {
+      // Order requested: play, privacy, info.
       buttons.push(
         el(
           "button",
@@ -256,10 +257,13 @@
           ]
         )
       );
+    } else {
+      // Public list keeps download button.
+      buttons.push(
+        el("a", { class: "icon-btn download-btn", href: `/media/${track.filename}`, download: "1", "aria-label": "Скачать", html: ICON.download }, [])
+      );
     }
-    buttons.push(
-      el("a", { class: "icon-btn download-btn", href: `/media/${track.filename}`, download: "1", "aria-label": "Скачать", html: ICON.download }, [])
-    );
+
     buttons.push(
       el(
         "button",
@@ -275,22 +279,6 @@
         []
       )
     );
-    if (own) {
-      buttons.push(
-        el(
-          "button",
-          {
-            class: "icon-btn danger-btn",
-            type: "button",
-            "data-action": "track-delete",
-            "data-track-id": String(track.id),
-            "aria-label": "Удалить",
-            html: ICON.trash,
-          },
-          []
-        )
-      );
-    }
 
     return el("div", { class: "track-item" }, [
       el("div", { class: "track-thumb" }, [trackThumbNode(track)]),
@@ -694,18 +682,137 @@
     });
   }
 
+  async function viewTrackEdit(trackId) {
+    document.title = "Изменение трека - SpotX";
+    if (!state.user) return navigate("/auth/login", { replace: true });
+
+    if (!state.myTracks.length) {
+      try {
+        const data = await apiJson("/api/tracks/mine", { method: "GET" });
+        state.myTracks = Array.isArray(data.items) ? data.items : [];
+      } catch {}
+    }
+
+    const t = state.myTracks.find((x) => Number(x.id) === Number(trackId));
+    if (!t) {
+      shell({
+        subtitle: "Изменение трека",
+        actions: topNav("profile"),
+        main: el("div", {}, [el("h2", {}, ["Трек не найден"]), infoText("Проверьте ссылку или войдите в свой аккаунт.")]),
+        sidebar: el("div"),
+      });
+      return;
+    }
+
+    const description = el("textarea", { class: "input textarea", rows: "6", placeholder: "Описание", value: (t.description || "").trim() });
+    const cover = el("input", { class: "file-input file-input-hidden", type: "file", accept: "image/*" });
+
+    const coverName = el("div", { class: "avatar-file" }, ["Обложка не выбрана"]);
+    const coverPick = el("button", { class: "avatar-change-btn", type: "button", onclick: () => cover.click() }, ["Сменить обложку"]);
+    const coverPreview = el("div", { class: "cover-preview" }, [
+      t.coverFilename ? el("img", { class: "cover-image", src: `/media/${t.coverFilename}`, alt: "Обложка трека" }) : el("div", { class: "cover-placeholder" }, ["No cover"]),
+    ]);
+    cover.addEventListener("change", () => {
+      const f = cover.files && cover.files[0];
+      coverName.textContent = f ? f.name : "Обложка не выбрана";
+      if (!f) return;
+      const url = URL.createObjectURL(f);
+      coverPreview.innerHTML = "";
+      coverPreview.appendChild(el("img", { class: "cover-image", src: url, alt: "Обложка трека" }));
+    });
+
+    const msg = el("div");
+    const save = el("button", { class: "upload-btn", type: "submit" }, ["Сохранить"]);
+    const del = el("button", { class: "logout-btn", type: "button" }, ["Удалить трек"]);
+
+    del.addEventListener("click", async () => {
+      try {
+        await apiJson(`/api/tracks/${t.id}`, { method: "DELETE" });
+        navigate("/profile");
+      } catch (err) {
+        msg.innerHTML = "";
+        msg.appendChild(errorText(err.message || "Ошибка"));
+      }
+    });
+
+    const form = el("form", {
+      class: "upload-form",
+      onsubmit: async (e) => {
+        e.preventDefault();
+        msg.innerHTML = "";
+        const fd = new FormData();
+        fd.set("description", (description.value || "").trim());
+        if (cover.files && cover.files[0]) fd.set("cover", cover.files[0]);
+        try {
+          const res = await apiFormAny(`/api/tracks/${t.id}`, "PATCH", fd);
+          const updated = res?.track;
+          if (updated) {
+            Object.assign(t, updated);
+            if (t.coverFilename) {
+              coverPreview.innerHTML = "";
+              coverPreview.appendChild(el("img", { class: "cover-image", src: `/media/${t.coverFilename}`, alt: "Обложка трека" }));
+            }
+          }
+          msg.appendChild(infoText("Сохранено"));
+        } catch (err) {
+          msg.appendChild(errorText(err.message || "Ошибка"));
+        }
+      },
+    }, [
+      el("h2", { style: "margin-top:0;" }, ["Изменить трек"]),
+      field("Описание", description),
+      el("div", { class: "field" }, [
+        el("div", { class: "field-label" }, ["Обложка"]),
+        el("div", { class: "settings-avatar-row" }, [coverPreview, el("div", { style: "display:flex;flex-direction:column;gap:10px;" }, [coverPick, coverName])]),
+      ]),
+      cover,
+      el("div", { style: "margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;" }, [save, del]),
+      msg,
+    ]);
+
+    shell({
+      subtitle: "Изменение трека",
+      actions: topNav("profile"),
+      main: form,
+      sidebar: el("div", { class: "card" }, [
+        infoText("Изменения применяются только к вашим трекам. Приватность переключается в профиле."),
+        el("a", { class: "small-btn", href: "/profile", "data-link": "1" }, ["Назад в профиль"]),
+      ]),
+    });
+  }
+
   async function renderRoute() {
-    await loadMe();
-    const path = window.location.pathname;
-    if (path === "/") return viewHome();
-    if (path === "/tracks") return viewPublic();
-    if (path === "/auth/login") return viewLogin();
-    if (path === "/auth/register") return viewRegister();
-    if (path === "/auth/forgot-password") return viewForgot();
-    if (path === "/profile") return viewProfile();
-    if (path === "/profile/settings") return viewSettings();
-    if (path === "/tracks/upload") return viewUpload();
-    return viewHome();
+    try {
+      await loadMe();
+      const path = window.location.pathname;
+      if (path === "/") return viewHome();
+      if (path === "/tracks") return viewPublic();
+      if (path === "/auth/login") return viewLogin();
+      if (path === "/auth/register") return viewRegister();
+      if (path === "/auth/forgot-password") return viewForgot();
+      if (path === "/profile") return viewProfile();
+      if (path === "/profile/settings") return viewSettings();
+      if (path === "/tracks/upload") return viewUpload();
+      const m = path.match(/^\/tracks\/(\d+)\/edit$/);
+      if (m) return viewTrackEdit(Number(m[1]));
+      return viewHome();
+    } catch (err) {
+      const app = qs("#app");
+      if (app) {
+        const msg = String(err?.message || err || "Unknown error");
+        const stack = String(err?.stack || "");
+        app.innerHTML = "";
+        app.appendChild(
+          el("div", { class: "container" }, [
+            el("div", { class: "card" }, [
+              el("h2", {}, ["Ошибка в клиентском коде"]),
+              el("p", { style: "color:var(--muted)" }, ["Откройте DevTools Console, но ниже есть текст ошибки:"]),
+              el("pre", { style: "white-space:pre-wrap;color:#fca5a5;background:rgba(255,255,255,0.03);padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.06);" }, [msg + (stack ? "\n\n" + stack : "")]),
+            ]),
+          ])
+        );
+      }
+    }
   }
 
   document.addEventListener("click", async (e) => {
@@ -733,45 +840,21 @@
         ? el("img", { class: "modal-cover", src: `/media/${t.coverFilename}`, alt: "Обложка трека" })
         : el("div", { class: "modal-cover-placeholder" }, ["No cover"]);
 
-      let editSection = null;
-      if (isMine) {
-        const desc = el("textarea", { class: "input textarea", rows: "5", placeholder: "Описание", value: descText });
-        const cover = el("input", { class: "file-input file-input-hidden", type: "file", accept: "image/*" });
-        const coverName = el("div", { class: "avatar-file" }, ["Обложка не выбрана"]);
-        const pick = el("button", { class: "avatar-change-btn", type: "button", onclick: () => cover.click() }, ["Сменить обложку"]);
-        cover.addEventListener("change", () => {
-          const f = cover.files && cover.files[0];
-          coverName.textContent = f ? f.name : "Обложка не выбрана";
-        });
-        const saveMsg = el("div");
-        const save = el("button", { class: "upload-btn", type: "button" }, ["Сохранить"]);
-        save.addEventListener("click", async () => {
-          saveMsg.innerHTML = "";
-          const fd = new FormData();
-          fd.set("description", (desc.value || "").trim());
-          if (cover.files && cover.files[0]) fd.set("cover", cover.files[0]);
-          try {
-            const res = await apiFormAny(`/api/tracks/${t.id}`, "PATCH", fd);
-            const updated = res?.track;
-            if (updated) {
-              Object.assign(t, updated);
-              // Refresh list UI to show cover/description changes.
-              if (scope === "mine") await viewProfile();
-              else await viewPublic();
-            }
-            saveMsg.appendChild(infoText("Сохранено"));
-          } catch (err) {
-            saveMsg.appendChild(errorText(err.message || "Ошибка"));
-          }
-        });
-        editSection = el("div", { style: "margin-top:14px;" }, [
-          el("h4", { style: "margin:0 0 10px 0;" }, ["Редактирование"]),
-          field("Описание", desc),
-          el("div", { class: "settings-avatar-row" }, [pick, coverName]),
-          cover,
-          el("div", { style: "margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;" }, [save, saveMsg]),
-        ]);
-      }
+      const deleteBtn = isMine
+        ? el("button", {
+            class: "logout-btn",
+            type: "button",
+            onclick: async () => {
+              try {
+                await apiJson(`/api/tracks/${t.id}`, { method: "DELETE" });
+                hideModal();
+                await viewProfile();
+              } catch (err) {
+                alert(err.message || "Ошибка");
+              }
+            },
+          }, ["Удалить"])
+        : null;
 
       showModal(
         el("div", {}, [
@@ -786,26 +869,19 @@
               ? el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Доступ"]), el("div", { class: "info-v" }, [t.is_public ? "Публичный" : "Приватный"])])
               : el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Автор"]), el("div", { class: "info-v" }, [t.owner_name || "—"])]),
           ]),
-          editSection,
-          el("div", { style: "margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;" }, [
-            el("a", { class: "public-btn", href: `/media/${t.filename}`, download: "1" }, ["Скачать файл"]),
-            el("button", { class: "small-btn", type: "button", onclick: () => hideModal() }, ["Закрыть"]),
+          el("div", { class: "modal-actions" }, [
+            el("div", { class: "modal-actions-left" }, [
+              el("a", { class: "public-btn", href: `/media/${t.filename}`, download: "1" }, ["Скачать файл"]),
+            ]),
+            isMine
+              ? el("div", { class: "modal-actions-right" }, [
+                  el("a", { class: "small-btn", href: `/tracks/${t.id}/edit`, "data-link": "1" }, ["Изменить"]),
+                  deleteBtn,
+                ])
+              : null,
           ]),
         ])
       );
-      return;
-    }
-
-    const delBtn = e.target.closest("button[data-action='track-delete']");
-    if (delBtn) {
-      const id = delBtn.getAttribute("data-track-id");
-      if (!id) return;
-      try {
-        await apiJson(`/api/tracks/${id}`, { method: "DELETE" });
-        await viewProfile();
-      } catch (err) {
-        alert(err.message || "Ошибка");
-      }
       return;
     }
 

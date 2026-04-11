@@ -557,8 +557,8 @@ body{
 .modal-overlay.active{ display:flex; }
 .modal{
   width:min(560px, 100%);
-  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(16,26,45,0.94);
+  border: 1px solid rgba(255,255,255,0.12);
   border-radius: 16px;
   box-shadow: 0 24px 70px rgba(2,6,23,0.7);
   padding: 16px;
@@ -577,6 +577,26 @@ body{
   cursor:pointer;
 }
 .modal-body{ padding-top:10px; }
+.modal-actions{
+  margin-top:14px;
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+.modal-actions-left{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+.modal-actions-right{
+  margin-left:auto;
+  display:flex;
+  gap:10px;
+  align-items:center;
+  justify-content:flex-end;
+}
 .modal-cover-wrap{ display:flex; justify-content:center; margin: 6px 0 12px; }
 .modal-cover{
   width: 100%;

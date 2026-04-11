@@ -24,6 +24,11 @@ def tracks_page(request: Request):
     return render_spa(request)
 
 
+@router.get("/tracks/{track_id}/edit")
+def track_edit_page(track_id: int, request: Request):
+    return render_spa(request)
+
+
 @router.get("/auth/register")
 def register_page(request: Request):
     return render_spa(request)
