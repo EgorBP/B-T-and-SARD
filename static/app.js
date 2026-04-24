@@ -230,18 +230,23 @@
         [label]
       );
     return [
-      mk("/search", "Поиск", "search"),
-      mk("/", "Главная", "home"),
-      mk("/tracks", "Треки", "tracks"),
       mk("/profile", "Профиль", "profile"),
+      mk("/search", "Поиск", "search"),
+      mk("/tracks", "Треки", "tracks"),
+      mk("/", "Главная", "home"),
     ];
   }
 
   function shell({ subtitle, actions, main, sidebar }) {
     const app = qs("#app");
     app.innerHTML = "";
+    const path = window.location.pathname;
+    const classes = ["container"];
+    if (path === "/profile") classes.push("page-profile");
+    if (path === "/search") classes.push("page-search");
+    const containerClass = classes.join(" ");
     app.appendChild(
-      el("div", { class: "container" }, [
+      el("div", { class: containerClass }, [
         header(subtitle, actions),
         el("main", { class: "card" }, [main]),
         el("aside", { class: "sidebar" }, [sidebar || el("div")]),
@@ -386,6 +391,11 @@
 
   async function viewSearch() {
     document.title = "Поиск - SpotX";
+    const isMobileSearch = window.matchMedia("(max-width:980px)").matches;
+
+    const defaultView = { sort: "new", coverOnly: false, descOnly: false, minePrivacy: "all" };
+    if (!state.search || !state.search.view) state.search = { ...(state.search || {}), view: { ...defaultView } };
+    const getView = () => ({ ...defaultView, ...(state.search?.view || {}) });
 
     const qInput = el("input", {
       class: "input search-input",
@@ -405,12 +415,33 @@
     const renderResults = () => {
       resultsWrap.innerHTML = "";
       const s = state.search || { items: [], scope: "public", didSearch: false };
-      const items = Array.isArray(s.items) ? s.items : [];
+      const itemsRaw = Array.isArray(s.items) ? s.items : [];
       const isMine = s.scope === "mine";
       // Ensure card layout matches the destination pages:
       // public searches => same card as /tracks, mine search => same card as /profile.
       const own = isMine;
       const scopeKey = isMine ? "mine" : "public";
+      const view = getView();
+
+      let items = itemsRaw.slice();
+      if (view.coverOnly) items = items.filter((t) => !!t?.coverFilename);
+      if (view.descOnly) items = items.filter((t) => String(t?.description || "").trim().length > 0);
+      if (isMine && view.minePrivacy !== "all") {
+        const wantPublic = view.minePrivacy === "public";
+        items = items.filter((t) => (!!t?.is_public) === wantPublic);
+      }
+
+      const getTs = (t) => {
+        const v = t?.createdAt;
+        const ms = v ? new Date(v).getTime() : NaN;
+        return isNaN(ms) ? 0 : ms;
+      };
+      const getTitle = (t) => String(t?.title || "").toLowerCase();
+      const getAuthor = (t) => String(t?.owner_name || "").toLowerCase();
+      if (view.sort === "new") items.sort((a, b) => getTs(b) - getTs(a));
+      else if (view.sort === "old") items.sort((a, b) => getTs(a) - getTs(b));
+      else if (view.sort === "title_az") items.sort((a, b) => getTitle(a).localeCompare(getTitle(b), "ru"));
+      else if (view.sort === "author_az") items.sort((a, b) => getAuthor(a).localeCompare(getAuthor(b), "ru"));
 
       if (!s.didSearch) {
         resultsWrap.appendChild(infoText("Введите запрос и выберите тип поиска."));
@@ -456,12 +487,17 @@
         const data = await apiJson(url, { method: "GET" });
         const items = Array.isArray(data.items) ? data.items : [];
 
-        state.search = { q, scope, by: scope === "mine" ? "mine" : by || "title", items, didSearch: true };
+        const view = state.search?.view ? { ...state.search.view } : { ...defaultView };
+        state.search = { q, scope, by: scope === "mine" ? "mine" : by || "title", items, didSearch: true, view };
         if (scope === "mine") state.myTracks = items;
         else state.publicTracks = items;
 
         msg.innerHTML = "";
         renderResults();
+        if (isMobileSearch) {
+          searchPanelCollapsed = true;
+          syncSearchPanel();
+        }
         // Let auxiliary scripts (audio player) re-index buttons on dynamic updates.
         try {
           window.dispatchEvent(new Event("spotx:render"));
@@ -495,20 +531,118 @@
       el("div", { class: "search-actions-row" }, [btnMine]),
     ]);
 
-    const main = el("div", {}, [
-      el("h2", {}, ["Поиск"]),
-      el("div", { class: "upload-form" }, [qInput, actions, msg]),
-      resultsWrap,
+    const sortSel = el("select", { class: "input filter-select" }, [
+      el("option", { value: "new" }, ["Сначала новые"]),
+      el("option", { value: "old" }, ["Сначала старые"]),
+      el("option", { value: "title_az" }, ["По названию (A-Z)"]),
+      el("option", { value: "author_az" }, ["По автору (A-Z)"]),
     ]);
 
+    const coverOnly = el("input", { type: "checkbox", class: "filter-checkbox" });
+    const descOnly = el("input", { type: "checkbox", class: "filter-checkbox" });
+
+    const minePrivacySel = el("select", { class: "input filter-select" }, [
+      el("option", { value: "all" }, ["Все"]),
+      el("option", { value: "public" }, ["Только публичные"]),
+      el("option", { value: "private" }, ["Только приватные"]),
+    ]);
+
+    const rerenderAndSync = () => {
+      renderResults();
+      try {
+        window.dispatchEvent(new Event("spotx:render"));
+      } catch {}
+    };
+
+    sortSel.addEventListener("change", () => {
+      const view = getView();
+      view.sort = sortSel.value || "new";
+      state.search.view = view;
+      rerenderAndSync();
+    });
+    coverOnly.addEventListener("change", () => {
+      const view = getView();
+      view.coverOnly = !!coverOnly.checked;
+      state.search.view = view;
+      rerenderAndSync();
+    });
+    descOnly.addEventListener("change", () => {
+      const view = getView();
+      view.descOnly = !!descOnly.checked;
+      state.search.view = view;
+      rerenderAndSync();
+    });
+    minePrivacySel.addEventListener("change", () => {
+      const view = getView();
+      view.minePrivacy = minePrivacySel.value || "all";
+      state.search.view = view;
+      rerenderAndSync();
+    });
+
+    const applyViewToControls = () => {
+      const view = getView();
+      sortSel.value = view.sort || "new";
+      coverOnly.checked = !!view.coverOnly;
+      descOnly.checked = !!view.descOnly;
+      minePrivacySel.value = view.minePrivacy || "all";
+    };
+    applyViewToControls();
+
+    const filterBlock = el("div", { class: isMobileSearch ? "card filter-block search-filter-inline" : "card filter-block" }, [
+      el("h3", {}, ["Сортировка и фильтры"]),
+      infoText("Применяются к текущим результатам поиска."),
+      el("div", { class: "filter-row" }, [el("div", {}, ["Сортировка"]), el("div", { style: "flex:1;" }, [sortSel])]),
+      el("div", { class: "filter-row" }, [el("div", {}, ["Только с обложкой"]), coverOnly]),
+      el("div", { class: "filter-row" }, [el("div", {}, ["Только с описанием"]), descOnly]),
+      el("div", { class: "filter-row" }, [el("div", {}, ["Мои треки: доступ"]), el("div", { style: "flex:1;" }, [minePrivacySel])]),
+    ]);
+
+    const searchPanel = el("div", { class: "search-panel" }, [
+      el("div", { class: "upload-form" }, [qInput, actions, msg]),
+      isMobileSearch ? filterBlock : null,
+    ]);
+    const searchToggleBtn = el("button", {
+      class: "search-panel-toggle",
+      type: "button",
+      "aria-label": "Скрыть поиск и фильтры",
+      title: "Скрыть поиск и фильтры",
+    }, ["▴"]);
+    let searchPanelCollapsed = false;
+    const syncSearchPanel = () => {
+      searchPanel.style.display = searchPanelCollapsed ? "none" : "";
+      if (isMobileSearch) {
+        searchToggleBtn.style.display = "inline-flex";
+        const show = searchPanelCollapsed;
+        searchToggleBtn.textContent = show ? "▾" : "▴";
+        searchToggleBtn.setAttribute("aria-label", show ? "Показать поиск и фильтры" : "Скрыть поиск и фильтры");
+        searchToggleBtn.title = show ? "Показать поиск и фильтры" : "Скрыть поиск и фильтры";
+      } else {
+        searchToggleBtn.style.display = "none";
+      }
+    };
+    searchToggleBtn.addEventListener("click", () => {
+      searchPanelCollapsed = !searchPanelCollapsed;
+      syncSearchPanel();
+    });
+
+    const titleRow = el("div", { class: "search-title-row" }, [
+      el("h2", { style: "margin:0;" }, ["Поиск"]),
+      searchToggleBtn,
+    ]);
+
+    const main = el("div", {}, [titleRow, searchPanel, resultsWrap]);
+
     renderResults();
+    if (isMobileSearch && state.search?.didSearch) {
+      searchPanelCollapsed = true;
+    }
+    syncSearchPanel();
+
     shell({
       subtitle: "Поиск",
       actions: topNav("search"),
       main,
-      sidebar: el("div", { class: "card" }, [
-        infoText("Поиск по автору/названию работает по публичным трекам. Поиск по своим трекам требует входа."),
-      ]),
+      sidebar: isMobileSearch ? el("div") : filterBlock,
     });
   }
 
@@ -518,23 +652,37 @@
     const email = el("input", { class: "input", type: "email", placeholder: "Email", required: "1" });
     const password = el("input", { class: "input", type: "password", placeholder: "Пароль", required: "1" });
     const msg = el("div");
+    let pending = false;
+    const submit = el("button", { class: "upload-btn", type: "submit" }, ["Войти"]);
 
     const form = el("form", {
       class: "upload-form",
       onsubmit: async (e) => {
         e.preventDefault();
+        if (pending) return;
         msg.innerHTML = "";
         if (!validateEmail(email.value)) return msg.appendChild(errorText("Введите корректный email"));
         if ((password.value || "").length < 6) return msg.appendChild(errorText("Пароль должен быть не короче 6 символов"));
+        pending = true;
+        email.disabled = true;
+        password.disabled = true;
+        submit.disabled = true;
+        msg.appendChild(loadingRow("Проверяем..."));
         try {
           state.user = await apiJson("/api/auth/login", { method: "POST", body: JSON.stringify({ email: email.value, password: password.value }) });
           state.userLoaded = true;
           navigate("/profile");
         } catch (err) {
+          msg.innerHTML = "";
           msg.appendChild(errorText(err.message || "Ошибка входа"));
+        } finally {
+          pending = false;
+          email.disabled = false;
+          password.disabled = false;
+          submit.disabled = false;
         }
       },
-    }, [email, password, el("button", { class: "upload-btn", type: "submit" }, ["Войти"]), msg]);
+    }, [email, password, submit, msg]);
 
     shell({
       subtitle: "Вход",
@@ -552,26 +700,44 @@
     const password = el("input", { class: "input", type: "password", placeholder: "Пароль (мин. 6)", required: "1" });
     const password2 = el("input", { class: "input", type: "password", placeholder: "Повторите пароль", required: "1" });
     const msg = el("div");
+    let pending = false;
+    const submit = el("button", { class: "upload-btn", type: "submit" }, ["Зарегистрироваться"]);
 
     const form = el("form", {
       class: "upload-form",
       onsubmit: async (e) => {
         e.preventDefault();
+        if (pending) return;
         msg.innerHTML = "";
         if (!validateEmail(email.value)) return msg.appendChild(errorText("Введите корректный email"));
         if ((name.value || "").trim().length < 2) return msg.appendChild(errorText("Имя должно содержать минимум 2 символа"));
         if ((password.value || "").length < 6) return msg.appendChild(errorText("Пароль должен быть не короче 6 символов"));
         if (password.value !== password2.value) return msg.appendChild(errorText("Пароли не совпадают"));
+        pending = true;
+        email.disabled = true;
+        name.disabled = true;
+        password.disabled = true;
+        password2.disabled = true;
+        submit.disabled = true;
+        msg.appendChild(loadingRow("Регистрируем..."));
         try {
           const data = await apiJson("/api/auth/register", { method: "POST", body: JSON.stringify({ email: email.value, name: name.value, password: password.value }) });
           state.user = { id: data.id, email: data.email, name: data.name, createdAt: data.createdAt, avatarFilename: data.avatarFilename || null };
           state.userLoaded = true;
           navigate("/profile");
         } catch (err) {
+          msg.innerHTML = "";
           msg.appendChild(errorText(err.message || "Ошибка регистрации"));
+        } finally {
+          pending = false;
+          email.disabled = false;
+          name.disabled = false;
+          password.disabled = false;
+          password2.disabled = false;
+          submit.disabled = false;
         }
       },
-    }, [email, name, password, password2, el("button", { class: "upload-btn", type: "submit" }, ["Зарегистрироваться"]), msg]);
+    }, [email, name, password, password2, submit, msg]);
 
     shell({
       subtitle: "Регистрация",
@@ -588,25 +754,44 @@
     const password = el("input", { class: "input", type: "password", placeholder: "Новый пароль (мин. 6)", required: "1" });
     const password2 = el("input", { class: "input", type: "password", placeholder: "Повторите новый пароль", required: "1" });
     const msg = el("div");
+    let pending = false;
+    const submit = el("button", { class: "upload-btn", type: "submit" }, ["Сменить пароль"]);
 
     const form = el("form", {
       class: "upload-form",
       onsubmit: async (e) => {
         e.preventDefault();
+        if (pending) return;
         msg.innerHTML = "";
         if (!validateEmail(email.value)) return msg.appendChild(errorText("Введите корректный email"));
         if ((phrase.value || "").trim().length < 10) return msg.appendChild(errorText("Секретная фраза слишком короткая"));
         if ((password.value || "").length < 6) return msg.appendChild(errorText("Пароль должен быть не короче 6 символов"));
         if (password.value !== password2.value) return msg.appendChild(errorText("Пароли не совпадают"));
+        pending = true;
+        email.disabled = true;
+        phrase.disabled = true;
+        password.disabled = true;
+        password2.disabled = true;
+        submit.disabled = true;
+        msg.appendChild(loadingRow("Отправляем..."));
         try {
           await apiJson("/api/auth/reset-password", { method: "POST", body: JSON.stringify({ email: email.value, recoveryPhrase: phrase.value, newPassword: password.value }) });
+          msg.innerHTML = "";
           msg.appendChild(infoText("Пароль изменен. Теперь войдите."));
           msg.appendChild(el("div", { style: "margin-top:10px;" }, [el("a", { class: "public-btn", href: "/auth/login", "data-link": "1" }, ["Вход"])]));
         } catch (err) {
+          msg.innerHTML = "";
           msg.appendChild(errorText(err.message || "Ошибка"));
+        } finally {
+          pending = false;
+          email.disabled = false;
+          phrase.disabled = false;
+          password.disabled = false;
+          password2.disabled = false;
+          submit.disabled = false;
         }
       },
-    }, [email, phrase, password, password2, el("button", { class: "upload-btn", type: "submit" }, ["Сменить пароль"]), msg]);
+    }, [email, phrase, password, password2, submit, msg]);
 
     shell({
       subtitle: "Восстановление пароля",
@@ -636,9 +821,9 @@
     const main = el("div", {}, [head, list]);
 
     const side = el("div", { class: "sidebar-stack" }, [
-      el("div", { class: "card profile-header" }, [
+      el("div", { class: "card profile-header profile-mobile-user" }, [
         avatarLinkNode(state.user),
-        el("div", {}, [
+        el("div", { class: "profile-mobile-meta" }, [
           el("p", { class: "user-name" }, [state.user.name]),
           el("div", { class: "user-actions" }, [
             el("a", { class: "small-btn", href: "/profile/settings", "data-link": "1" }, ["Настройки"]),
@@ -646,7 +831,7 @@
           ]),
         ]),
       ]),
-      el("div", { class: "card" }, [
+      el("div", { class: "card profile-mobile-upload" }, [
         el("h3", { style: "margin-top:0;" }, ["Загрузка треков"]),
         infoText("Перейдите на страницу загрузки нового трека."),
         el("a", { class: "public-btn", href: "/tracks/upload", "data-link": "1" }, ["Перейти к загрузке"]),
