@@ -24,18 +24,27 @@ def tracks_page(request: Request):
     return render_spa(request)
 
 
+@router.get("/search")
+def search_page(request: Request):
+    return render_spa(request)
+
+
 @router.get("/tracks/{track_id}/edit")
 def track_edit_page(track_id: int, request: Request):
     return render_spa(request)
 
 
 @router.get("/auth/register")
-def register_page(request: Request):
+def register_page(request: Request, db: Session = Depends(get_db)):
+    if get_current_user(request, db):
+        return RedirectResponse("/profile", status_code=302)
     return render_spa(request)
 
 
 @router.get("/auth/login")
-def login_page(request: Request):
+def login_page(request: Request, db: Session = Depends(get_db)):
+    if get_current_user(request, db):
+        return RedirectResponse("/profile", status_code=302)
     return render_spa(request)
 
 

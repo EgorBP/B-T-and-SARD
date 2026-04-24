@@ -380,6 +380,35 @@ body{
   gap:8px;
   margin-top:6px;
 }
+.search-actions{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:2px;
+}
+.search-input{
+  width:100%;
+  padding:14px 16px;
+  font-size:16px;
+  border-radius:14px;
+}
+.search-actions-row{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.search-actions-row > *{
+  flex: 1 1 0;
+}
+.search-actions-row .small-btn{
+  width:100%;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+@media (max-width:520px){
+  .search-actions-row{ flex-direction:column; }
+}
 .input, .file-input{
   padding:10px 12px;
   background:var(--glass-2);

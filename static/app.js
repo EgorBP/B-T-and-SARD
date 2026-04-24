@@ -1,5 +1,12 @@
 (() => {
-  const state = { user: null, userLoaded: false, publicTracks: [], myTracks: [], avatarBust: 0 };
+  const state = {
+    user: null,
+    userLoaded: false,
+    publicTracks: [],
+    myTracks: [],
+    avatarBust: 0,
+    search: { q: "", scope: "public", by: "title", items: [], didSearch: false },
+  };
 
   function qs(sel, root = document) {
     return root.querySelector(sel);
@@ -215,7 +222,12 @@
         { class: active === key ? "public-btn" : "small-btn", href, "data-link": "1" },
         [label]
       );
-    return [mk("/", "Главная", "home"), mk("/tracks", "Треки", "tracks"), mk("/profile", "Профиль", "profile")];
+    return [
+      mk("/search", "Поиск", "search"),
+      mk("/", "Главная", "home"),
+      mk("/tracks", "Треки", "tracks"),
+      mk("/profile", "Профиль", "profile"),
+    ];
   }
 
   function shell({ subtitle, actions, main, sidebar }) {
@@ -359,8 +371,127 @@
     shell({ subtitle: "Треки", actions: topNav("tracks"), main, sidebar: userSideCard() });
   }
 
+  async function viewSearch() {
+    document.title = "Поиск - SpotX";
+
+    const qInput = el("input", {
+      class: "input search-input",
+      placeholder: "Введите запрос",
+      value: state.search?.q || "",
+      onkeydown: (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          void runSearch({ scope: "public", by: "title" });
+        }
+      },
+    });
+
+    const msg = el("div");
+    const resultsWrap = el("div", { style: "margin-top:14px;" }, []);
+
+    const renderResults = () => {
+      resultsWrap.innerHTML = "";
+      const s = state.search || { items: [], scope: "public", didSearch: false };
+      const items = Array.isArray(s.items) ? s.items : [];
+      const isMine = s.scope === "mine";
+      // Ensure card layout matches the destination pages:
+      // public searches => same card as /tracks, mine search => same card as /profile.
+      const own = isMine;
+      const scopeKey = isMine ? "mine" : "public";
+
+      if (!s.didSearch) {
+        resultsWrap.appendChild(infoText("Введите запрос и выберите тип поиска."));
+        return;
+      }
+
+      const head = el("div", { class: "section-head" }, [
+        el("h2", { class: "section-title" }, ["Результаты"]),
+        el("div", { class: "section-count" }, [`${items.length} треков`]),
+      ]);
+      resultsWrap.appendChild(head);
+
+      if (!items.length) {
+        resultsWrap.appendChild(infoText("Ничего не найдено."));
+        return;
+      }
+
+      const list = el("div", { class: "tracks-list" }, items.map((t) => trackItem(t, { own, scope: scopeKey })));
+      resultsWrap.appendChild(list);
+    };
+
+    async function runSearch({ scope, by }) {
+      msg.innerHTML = "";
+      const q = (qInput.value || "").trim();
+      if (!q) return msg.appendChild(errorText("Введите запрос"));
+
+      if (scope === "mine" && !state.user) return navigate("/auth/login", { replace: true });
+
+      msg.appendChild(infoText("Поиск..."));
+      try {
+        let url = "";
+        if (scope === "mine") url = `/api/search/mine?q=${encodeURIComponent(q)}`;
+        else url = `/api/search/public?q=${encodeURIComponent(q)}&by=${encodeURIComponent(by || "title")}`;
+
+        const data = await apiJson(url, { method: "GET" });
+        const items = Array.isArray(data.items) ? data.items : [];
+
+        state.search = { q, scope, by: scope === "mine" ? "mine" : by || "title", items, didSearch: true };
+        if (scope === "mine") state.myTracks = items;
+        else state.publicTracks = items;
+
+        msg.innerHTML = "";
+        renderResults();
+        // Let auxiliary scripts (audio player) re-index buttons on dynamic updates.
+        try {
+          window.dispatchEvent(new Event("spotx:render"));
+        } catch {}
+      } catch (err) {
+        msg.innerHTML = "";
+        msg.appendChild(errorText(err.message || "Ошибка поиска"));
+      }
+    }
+
+    const btnAuthor = el(
+      "button",
+      { class: "small-btn", type: "button", onclick: () => runSearch({ scope: "public", by: "author" }) },
+      ["Поиск по автору"]
+    );
+    const btnTitle = el(
+      "button",
+      { class: "small-btn", type: "button", onclick: () => runSearch({ scope: "public", by: "title" }) },
+      ["Поиск по названию"]
+    );
+    const btnMine = el(
+      "button",
+      { class: "small-btn", type: "button", onclick: () => runSearch({ scope: "mine", by: "title" }) },
+      ["Поиск по своим трекам"]
+    );
+
+    const actions = el("div", { class: "search-actions" }, [
+      el("div", { class: "search-actions-row" }, [btnAuthor, btnTitle]),
+      el("div", { class: "search-actions-row" }, [btnMine]),
+    ]);
+
+    const main = el("div", {}, [
+      el("h2", {}, ["Поиск"]),
+      el("div", { class: "upload-form" }, [qInput, actions, msg]),
+      resultsWrap,
+    ]);
+
+    renderResults();
+    shell({
+      subtitle: "Поиск",
+      actions: topNav("search"),
+      main,
+      sidebar: el("div", { class: "card" }, [
+        infoText("Поиск по автору/названию работает по публичным трекам. Поиск по своим трекам требует входа."),
+      ]),
+    });
+  }
+
   async function viewLogin() {
     document.title = "Вход - SpotX";
+    if (state.user) return navigate("/profile", { replace: true });
     const email = el("input", { class: "input", type: "email", placeholder: "Email", required: "1" });
     const password = el("input", { class: "input", type: "password", placeholder: "Пароль", required: "1" });
     const msg = el("div");
@@ -392,6 +523,7 @@
 
   async function viewRegister() {
     document.title = "Регистрация - SpotX";
+    if (state.user) return navigate("/profile", { replace: true });
     const email = el("input", { class: "input", type: "email", placeholder: "Email", required: "1" });
     const name = el("input", { class: "input", placeholder: "Имя", required: "1" });
     const password = el("input", { class: "input", type: "password", placeholder: "Пароль (мин. 6)", required: "1" });
@@ -829,6 +961,7 @@
       const path = window.location.pathname;
       if (path === "/") return viewHome();
       if (path === "/tracks") return viewPublic();
+      if (path === "/search") return viewSearch();
       if (path === "/auth/login") return viewLogin();
       if (path === "/auth/register") return viewRegister();
       if (path === "/auth/forgot-password") return viewForgot();

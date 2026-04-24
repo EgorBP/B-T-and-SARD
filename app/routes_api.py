@@ -1,6 +1,7 @@
 import os
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from models import Track, User
@@ -22,6 +23,26 @@ from .deps import get_current_user, get_db, require_user
 from .storage import save_uploaded_file
 
 router = APIRouter()
+
+
+def _normalize_search_query(q: str) -> str:
+    q = (q or "").strip()
+    if not q:
+        raise HTTPException(status_code=422, detail="Пустой запрос")
+    if len(q) > 200:
+        raise HTTPException(status_code=422, detail="Слишком длинный запрос (макс 200 символов)")
+    return q
+
+
+def _like_any_case(col, q: str):
+    """
+    SQLite's LOWER()/NOCASE are ASCII-focused; for Cyrillic names this often breaks case-insensitive matching.
+    Use several Python-side case variants and match against the raw column instead.
+    """
+    raw = (q or "").strip()
+    variants = {raw, raw.lower(), raw.upper(), raw.title(), raw.capitalize()}
+    variants = [v for v in variants if v]
+    return or_(*[col.like(f"%{v}%") for v in variants])
 
 
 @router.post("/api/auth/register")
@@ -307,3 +328,68 @@ def delete_track_api(track_id: int, request: Request, db: Session = Depends(get_
     try_remove(cover_filename)
 
     return {"ok": True}
+
+
+@router.get("/api/search/public")
+def search_public_tracks_api(q: str, by: str = "title", db: Session = Depends(get_db)):
+    """
+    Search among public tracks.
+    by: "title" | "author"
+    """
+    query = db.query(Track).filter(Track.is_public == True)
+    if by == "title":
+        qn = _normalize_search_query(q)
+        query = query.filter(_like_any_case(Track.title, qn))
+    elif by == "author":
+        qn = _normalize_search_query(q)
+        query = query.join(User, Track.owner_id == User.id).filter(_like_any_case(User.name, qn))
+    else:
+        raise HTTPException(status_code=422, detail="Некорректный параметр by")
+
+    tracks = query.all()
+    items = []
+    for t in tracks:
+        items.append(
+            {
+                "id": t.id,
+                "title": t.title,
+                "filename": t.filename,
+                "coverFilename": t.cover_filename,
+                "description": t.description,
+                "is_public": bool(t.is_public),
+                "createdAt": t.created_at,
+                "owner_id": t.owner_id,
+                "owner_name": t.owner.name if t.owner else None,
+            }
+        )
+    return {"items": items}
+
+
+@router.get("/api/search/mine")
+def search_my_tracks_api(request: Request, q: str, db: Session = Depends(get_db)):
+    """
+    Search among current user's tracks (title + description).
+    """
+    user = require_user(request, db)
+    qn = _normalize_search_query(q)
+
+    tracks = (
+        db.query(Track)
+        .filter(Track.owner_id == user.id)
+        .filter(or_(_like_any_case(Track.title, qn), _like_any_case(Track.description, qn)))
+        .all()
+    )
+
+    items = [
+        {
+            "id": t.id,
+            "title": t.title,
+            "filename": t.filename,
+            "coverFilename": t.cover_filename,
+            "description": t.description,
+            "is_public": bool(t.is_public),
+            "createdAt": t.created_at,
+        }
+        for t in tracks
+    ]
+    return {"items": items}
