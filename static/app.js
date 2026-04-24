@@ -91,6 +91,13 @@
     return el("p", { style: "margin-top:8px;color:var(--muted);font-size:14px;" }, [msg]);
   }
 
+  function loadingRow(label = "Загрузка...") {
+    return el("div", { class: "loading-row" }, [
+      el("div", { class: "spinner", "aria-hidden": "true" }, []),
+      el("div", {}, [label]),
+    ]);
+  }
+
   function validateEmail(email) {
     return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((email || "").trim().toLowerCase());
   }
@@ -362,6 +369,12 @@
 
   async function viewPublic() {
     document.title = "Треки - SpotX";
+    shell({
+      subtitle: "Треки",
+      actions: topNav("tracks"),
+      main: el("div", {}, [el("h2", {}, ["Треки"]), loadingRow("Загружаем публичные треки...")]),
+      sidebar: userSideCard(),
+    });
     const data = await apiJson("/api/tracks/public", { method: "GET" });
     state.publicTracks = Array.isArray(data.items) ? data.items : [];
 
@@ -426,7 +439,15 @@
 
       if (scope === "mine" && !state.user) return navigate("/auth/login", { replace: true });
 
-      msg.appendChild(infoText("Поиск..."));
+      const busy = (v) => {
+        qInput.disabled = !!v;
+        btnAuthor.disabled = !!v;
+        btnTitle.disabled = !!v;
+        btnMine.disabled = !!v;
+      };
+
+      busy(true);
+      msg.appendChild(loadingRow("Поиск..."));
       try {
         let url = "";
         if (scope === "mine") url = `/api/search/mine?q=${encodeURIComponent(q)}`;
@@ -448,6 +469,8 @@
       } catch (err) {
         msg.innerHTML = "";
         msg.appendChild(errorText(err.message || "Ошибка поиска"));
+      } finally {
+        busy(false);
       }
     }
 
@@ -596,6 +619,12 @@
   async function viewProfile() {
     document.title = "Профиль - SpotX";
     if (!state.user) return navigate("/auth/login", { replace: true });
+    shell({
+      subtitle: "Профиль",
+      actions: topNav("profile"),
+      main: el("div", {}, [el("h2", {}, ["Ваши треки"]), loadingRow("Загружаем ваши треки...")]),
+      sidebar: el("div", { class: "card profile-header" }, [avatarLinkNode(state.user), el("p", { class: "user-name" }, [state.user.name])]),
+    });
     const data = await apiJson("/api/tracks/mine", { method: "GET" });
     state.myTracks = Array.isArray(data.items) ? data.items : [];
 
@@ -630,6 +659,12 @@
   async function viewSettings() {
     document.title = "Настройки - SpotX";
     if (!state.user) return navigate("/auth/login", { replace: true });
+    shell({
+      subtitle: "Настройки профиля",
+      actions: topNav("profile"),
+      main: el("div", {}, [el("h2", {}, ["Настройки"]), loadingRow("Загружаем настройки...")]),
+      sidebar: userSideCard(),
+    });
     const data = await apiJson("/api/profile/settings", { method: "GET" });
     if (data?.avatarFilename !== undefined) state.user.avatarFilename = data.avatarFilename;
 
@@ -823,6 +858,12 @@
     if (!state.user) return navigate("/auth/login", { replace: true });
 
     if (!state.myTracks.length) {
+      shell({
+        subtitle: "Изменение трека",
+        actions: topNav("profile"),
+        main: el("div", {}, [el("h2", {}, ["Изменение трека"]), loadingRow("Загружаем ваши треки...")]),
+        sidebar: userSideCard(),
+      });
       try {
         const data = await apiJson("/api/tracks/mine", { method: "GET" });
         state.myTracks = Array.isArray(data.items) ? data.items : [];

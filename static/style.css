@@ -29,6 +29,31 @@ body{
   padding:32px;
 }
 
+/* loading */
+.loading-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 0;
+  color:var(--muted);
+}
+.spinner{
+  width:18px;
+  height:18px;
+  border-radius:999px;
+  border:2px solid rgba(255,255,255,0.18);
+  border-top-color: rgba(255,255,255,0.65);
+  animation: spin 0.85s linear infinite;
+  flex: 0 0 18px;
+}
+@keyframes spin{ to { transform: rotate(360deg); } }
+.small-btn[disabled], .upload-btn[disabled]{
+  opacity:0.6;
+  cursor:not-allowed;
+  transform:none !important;
+  filter:none !important;
+}
+
 /* layout */
 .container{
   max-width:1100px;
