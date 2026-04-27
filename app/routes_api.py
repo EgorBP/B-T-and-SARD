@@ -20,9 +20,21 @@ from .auth import (
 )
 from .context import MEDIA_PATH, pwd_context
 from .deps import get_current_user, get_db, require_user
-from .storage import save_uploaded_file
+from .storage import save_uploaded_file, validate_uploaded_file
 
 router = APIRouter()
+
+
+def _validate_pagination(limit: int | None, offset: int) -> tuple[int | None, int]:
+    if offset < 0:
+        raise HTTPException(status_code=422, detail="offset не может быть отрицательным")
+    if limit is None:
+        return None, offset
+    if limit < 1:
+        raise HTTPException(status_code=422, detail="limit должен быть больше 0")
+    if limit > 100:
+        raise HTTPException(status_code=422, detail="limit слишком большой (макс 100)")
+    return limit, offset
 
 
 def _normalize_search_query(q: str) -> str:
@@ -104,8 +116,16 @@ def logout_api(request: Request):
 
 
 @router.get("/api/tracks/public")
-def public_tracks_api(db: Session = Depends(get_db)):
-    tracks = db.query(Track).filter(Track.is_public == True).all()
+def public_tracks_api(limit: int | None = None, offset: int = 0, db: Session = Depends(get_db)):
+    limit, offset = _validate_pagination(limit, offset)
+    query = db.query(Track).filter(Track.is_public == True)
+    total = query.with_entities(func.count(Track.id)).scalar() or 0
+
+    tracks_query = query.order_by(Track.created_at.desc(), Track.id.desc())
+    if limit is not None:
+        tracks_query = tracks_query.offset(offset).limit(limit)
+
+    tracks = tracks_query.all()
     items = []
     for t in tracks:
         items.append(
@@ -121,13 +141,25 @@ def public_tracks_api(db: Session = Depends(get_db)):
                 "owner_name": t.owner.name if t.owner else None,
             }
         )
-    return {"items": items}
+
+    if limit is None:
+        return {"items": items, "total": total, "offset": 0, "limit": total, "hasMore": False}
+
+    return {"items": items, "total": total, "offset": offset, "limit": limit, "hasMore": offset + len(items) < total}
 
 
 @router.get("/api/tracks/mine")
-def my_tracks_api(request: Request, db: Session = Depends(get_db)):
+def my_tracks_api(request: Request, limit: int | None = None, offset: int = 0, db: Session = Depends(get_db)):
+    limit, offset = _validate_pagination(limit, offset)
     user = require_user(request, db)
-    tracks = db.query(Track).filter(Track.owner_id == user.id).all()
+    query = db.query(Track).filter(Track.owner_id == user.id)
+    total = query.with_entities(func.count(Track.id)).scalar() or 0
+
+    tracks_query = query.order_by(Track.created_at.desc(), Track.id.desc())
+    if limit is not None:
+        tracks_query = tracks_query.offset(offset).limit(limit)
+
+    tracks = tracks_query.all()
     items = [
         {
             "id": t.id,
@@ -140,7 +172,11 @@ def my_tracks_api(request: Request, db: Session = Depends(get_db)):
         }
         for t in tracks
     ]
-    return {"items": items}
+
+    if limit is None:
+        return {"items": items, "total": total, "offset": 0, "limit": total, "hasMore": False}
+
+    return {"items": items, "total": total, "offset": offset, "limit": limit, "hasMore": offset + len(items) < total}
 
 
 @router.get("/api/profile/settings")
@@ -182,6 +218,7 @@ def profile_settings_post_api(
         user.password_hash = pwd_context.hash(validate_password(password))
 
     if avatar and avatar.filename:
+        validate_uploaded_file(avatar, "avatar")
         user.avatar_filename = save_uploaded_file(avatar, "avatar")
 
     db.commit()
@@ -210,9 +247,11 @@ def upload_track_api(
     if len(description) > 2000:
         raise HTTPException(status_code=422, detail="Описание слишком длинное (макс 2000 символов)")
 
+    validate_uploaded_file(file, "track")
     stored_filename = save_uploaded_file(file, "track")
     cover_filename = None
     if cover and cover.filename:
+        validate_uploaded_file(cover, "cover")
         cover_filename = save_uploaded_file(cover, "cover")
 
     track = Track(title=title, filename=stored_filename, is_public=False, owner_id=user.id)
@@ -276,6 +315,7 @@ def update_track_api(
             raise HTTPException(status_code=422, detail="Некорректное значение приватности")
 
     if cover and cover.filename:
+        validate_uploaded_file(cover, "cover")
         track.cover_filename = save_uploaded_file(cover, "cover")
 
     db.commit()

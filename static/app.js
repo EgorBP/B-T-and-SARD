@@ -7,6 +7,16 @@
     avatarBust: 0,
     search: { q: "", scope: "public", by: "title", items: [], didSearch: false },
   };
+  let cleanupPageBindings = null;
+
+  function setPageCleanup(cleanupFn) {
+    if (typeof cleanupPageBindings === "function") {
+      try {
+        cleanupPageBindings();
+      } catch {}
+    }
+    cleanupPageBindings = typeof cleanupFn === "function" ? cleanupFn : null;
+  }
 
   function qs(sel, root = document) {
     return root.querySelector(sel);
@@ -373,20 +383,89 @@
   }
 
   async function viewPublic() {
+    setPageCleanup(null);
     document.title = "Треки - SpotX";
-    shell({
-      subtitle: "Треки",
-      actions: topNav("tracks"),
-      main: el("div", {}, [el("h2", {}, ["Треки"]), loadingRow("Загружаем публичные треки...")]),
-      sidebar: userSideCard(),
-    });
-    const data = await apiJson("/api/tracks/public", { method: "GET" });
-    state.publicTracks = Array.isArray(data.items) ? data.items : [];
+    const pageSize = 10;
+    const pager = { offset: 0, hasMore: true, loading: false, total: 0 };
+    state.publicTracks = [];
 
-    const list = el("div", { class: "tracks-list" }, state.publicTracks.map((t) => trackItem(t, { own: false, scope: "public" })));
+    const countNode = el("div", { class: "section-count" }, ["0 треков"]);
+    const head = el("div", { class: "section-head" }, [
+      el("h2", { class: "section-title" }, ["Треки"]),
+      countNode,
+    ]);
+    const list = el("div", { class: "tracks-list" }, []);
+    const listStatus = el("div");
+    const loadMoreWrap = el("div", { style: "margin-top:14px;display:none;justify-content:center;" }, []);
+    const loadMoreBtn = el("button", { class: "public-btn", type: "button" }, ["Загрузить ещё"]);
+    loadMoreWrap.appendChild(loadMoreBtn);
 
-    const main = el("div", {}, [el("h2", {}, ["Треки"]), list]);
+    const main = el("div", {}, [head, list, listStatus, loadMoreWrap]);
     shell({ subtitle: "Треки", actions: topNav("tracks"), main, sidebar: userSideCard() });
+
+    const renderList = () => {
+      list.innerHTML = "";
+      for (const track of state.publicTracks) {
+        list.appendChild(trackItem(track, { own: false, scope: "public" }));
+      }
+
+      if (pager.total > 0 || !pager.hasMore) countNode.textContent = `${state.publicTracks.length} из ${pager.total} треков`;
+      else countNode.textContent = `${state.publicTracks.length} треков`;
+
+      listStatus.innerHTML = "";
+      if (!state.publicTracks.length && !pager.loading) {
+        listStatus.appendChild(infoText("Пока нет публичных треков."));
+      }
+
+      loadMoreBtn.disabled = pager.loading;
+      loadMoreBtn.textContent = pager.loading ? "Загружаем..." : "Загрузить ещё";
+      const cannotScroll = list.scrollHeight <= list.clientHeight + 2;
+      const nearBottom = list.scrollHeight - list.clientHeight - list.scrollTop <= 24;
+      const scrolledEnough = list.scrollTop > 60;
+      loadMoreWrap.style.display = pager.hasMore && (cannotScroll || scrolledEnough || nearBottom) ? "flex" : "none";
+
+      try {
+        window.dispatchEvent(new Event("spotx:render"));
+      } catch {}
+    };
+
+    const onScroll = () => {
+      if (window.location.pathname !== "/tracks") return;
+      if (!pager.hasMore || pager.loading) {
+        if (loadMoreWrap.style.display !== "none") loadMoreWrap.style.display = "none";
+        return;
+      }
+      const cannotScroll = list.scrollHeight <= list.clientHeight + 2;
+      const nearBottom = list.scrollHeight - list.clientHeight - list.scrollTop <= 24;
+      const scrolledEnough = list.scrollTop > 60;
+      loadMoreWrap.style.display = cannotScroll || scrolledEnough || nearBottom ? "flex" : "none";
+    };
+    list.addEventListener("scroll", onScroll, { passive: true });
+    setPageCleanup(() => list.removeEventListener("scroll", onScroll));
+
+    const loadMore = async () => {
+      if (pager.loading || !pager.hasMore) return;
+      pager.loading = true;
+      renderList();
+      try {
+        const url = `/api/tracks/public?limit=${pageSize}&offset=${pager.offset}`;
+        const data = await apiJson(url, { method: "GET" });
+        const items = Array.isArray(data.items) ? data.items : [];
+        state.publicTracks.push(...items);
+        pager.offset += items.length;
+        pager.total = Number.isFinite(data.total) ? Number(data.total) : pager.total;
+        if (typeof data.hasMore === "boolean") pager.hasMore = data.hasMore;
+        else pager.hasMore = items.length === pageSize;
+      } finally {
+        pager.loading = false;
+        renderList();
+      }
+    };
+
+    loadMoreBtn.addEventListener("click", () => {
+      void loadMore();
+    });
+    await loadMore();
   }
 
   async function viewSearch() {
@@ -802,23 +881,25 @@
   }
 
   async function viewProfile() {
+    setPageCleanup(null);
     document.title = "Профиль - SpotX";
     if (!state.user) return navigate("/auth/login", { replace: true });
-    shell({
-      subtitle: "Профиль",
-      actions: topNav("profile"),
-      main: el("div", {}, [el("h2", {}, ["Ваши треки"]), loadingRow("Загружаем ваши треки...")]),
-      sidebar: el("div", { class: "card profile-header" }, [avatarLinkNode(state.user), el("p", { class: "user-name" }, [state.user.name])]),
-    });
-    const data = await apiJson("/api/tracks/mine", { method: "GET" });
-    state.myTracks = Array.isArray(data.items) ? data.items : [];
+    const pageSize = 10;
+    const pager = { offset: 0, hasMore: true, loading: false, total: 0 };
+    state.myTracks = [];
 
-    const list = el("div", { class: "tracks-list" }, state.myTracks.map((t) => trackItem(t, { own: true, scope: "mine" })));
+    const list = el("div", { class: "tracks-list" }, []);
+    const listStatus = el("div");
+    const loadMoreWrap = el("div", { style: "margin-top:14px;display:none;justify-content:center;" }, []);
+    const loadMoreBtn = el("button", { class: "public-btn", type: "button" }, ["Загрузить ещё"]);
+    loadMoreWrap.appendChild(loadMoreBtn);
+
+    const countNode = el("div", { class: "section-count" }, ["0 треков"]);
     const head = el("div", { class: "section-head" }, [
       el("h2", { class: "section-title" }, ["Ваши треки"]),
-      el("div", { class: "section-count" }, [`${state.myTracks.length} треков`]),
+      countNode,
     ]);
-    const main = el("div", {}, [head, list]);
+    const main = el("div", {}, [head, list, listStatus, loadMoreWrap]);
 
     const side = el("div", { class: "sidebar-stack" }, [
       el("div", { class: "card profile-header profile-mobile-user" }, [
@@ -839,6 +920,70 @@
     ]);
 
     shell({ subtitle: "Профиль", actions: topNav("profile"), main, sidebar: side });
+
+    const renderList = () => {
+      list.innerHTML = "";
+      for (const track of state.myTracks) {
+        list.appendChild(trackItem(track, { own: true, scope: "mine" }));
+      }
+
+      if (pager.total > 0 || !pager.hasMore) countNode.textContent = `${state.myTracks.length} из ${pager.total} треков`;
+      else countNode.textContent = `${state.myTracks.length} треков`;
+
+      listStatus.innerHTML = "";
+      if (!state.myTracks.length && !pager.loading) {
+        listStatus.appendChild(infoText("У вас пока нет загруженных треков."));
+      }
+
+      loadMoreBtn.disabled = pager.loading;
+      loadMoreBtn.textContent = pager.loading ? "Загружаем..." : "Загрузить ещё";
+      const cannotScroll = list.scrollHeight <= list.clientHeight + 2;
+      const nearBottom = list.scrollHeight - list.clientHeight - list.scrollTop <= 24;
+      const scrolledEnough = list.scrollTop > 60;
+      loadMoreWrap.style.display = pager.hasMore && (cannotScroll || scrolledEnough || nearBottom) ? "flex" : "none";
+
+      try {
+        window.dispatchEvent(new Event("spotx:render"));
+      } catch {}
+    };
+
+    const onScroll = () => {
+      if (window.location.pathname !== "/profile") return;
+      if (!pager.hasMore || pager.loading) {
+        if (loadMoreWrap.style.display !== "none") loadMoreWrap.style.display = "none";
+        return;
+      }
+      const cannotScroll = list.scrollHeight <= list.clientHeight + 2;
+      const nearBottom = list.scrollHeight - list.clientHeight - list.scrollTop <= 24;
+      const scrolledEnough = list.scrollTop > 60;
+      loadMoreWrap.style.display = cannotScroll || scrolledEnough || nearBottom ? "flex" : "none";
+    };
+    list.addEventListener("scroll", onScroll, { passive: true });
+    setPageCleanup(() => list.removeEventListener("scroll", onScroll));
+
+    const loadMore = async () => {
+      if (pager.loading || !pager.hasMore) return;
+      pager.loading = true;
+      renderList();
+      try {
+        const url = `/api/tracks/mine?limit=${pageSize}&offset=${pager.offset}`;
+        const data = await apiJson(url, { method: "GET" });
+        const items = Array.isArray(data.items) ? data.items : [];
+        state.myTracks.push(...items);
+        pager.offset += items.length;
+        pager.total = Number.isFinite(data.total) ? Number(data.total) : pager.total;
+        if (typeof data.hasMore === "boolean") pager.hasMore = data.hasMore;
+        else pager.hasMore = items.length === pageSize;
+      } finally {
+        pager.loading = false;
+        renderList();
+      }
+    };
+
+    loadMoreBtn.addEventListener("click", () => {
+      void loadMore();
+    });
+    await loadMore();
   }
 
   async function viewSettings() {
@@ -1183,6 +1328,7 @@
 
   async function renderRoute() {
     try {
+      setPageCleanup(null);
       await loadMe();
       const path = window.location.pathname;
       if (path === "/") return viewHome();
