@@ -4,10 +4,12 @@
     userLoaded: false,
     publicTracks: [],
     myTracks: [],
+    favoriteTracks: [],
     uploadSessionTracks: [],
     uploadDraft: null,
     avatarBust: 0,
     search: { q: "", scope: "public", by: "title", items: [], didSearch: false },
+    scrollPosition: 0,
   };
   let cleanupPageBindings = null;
 
@@ -18,6 +20,22 @@
       } catch {}
     }
     cleanupPageBindings = typeof cleanupFn === "function" ? cleanupFn : null;
+  }
+
+  function saveScrollPosition() {
+    const tracksList = qs(".tracks-list");
+    if (tracksList) {
+      state.scrollPosition = tracksList.scrollTop;
+    }
+  }
+
+  function restoreScrollPosition() {
+    const tracksList = qs(".tracks-list");
+    if (tracksList && state.scrollPosition > 0) {
+      requestAnimationFrame(() => {
+        tracksList.scrollTop = state.scrollPosition;
+      });
+    }
   }
 
   function qs(sel, root = document) {
@@ -78,6 +96,7 @@
   const PAGE_JS = {
     "/": ["/static/pages-js/viewHome.js"],
     "/tracks": ["/static/pages-js/viewPublic.js"],
+    "/favorites": ["/static/pages-js/viewFavorites.js"],
     "/search": ["/static/pages-js/viewSearch.js"],
     "/auth/login": ["/static/pages-js/viewLogin.js"],
     "/auth/register": ["/static/pages-js/viewRegister.js"],
@@ -106,6 +125,11 @@
           })
           .then((code) => {
             eval(code);
+          })
+          .catch((e) => {
+            // Remove from cache so a retry can succeed
+            pageJsCache.delete(src);
+            throw new Error(networkError(e));
           });
         pageJsCache.set(src, promise);
       }
@@ -119,43 +143,86 @@
     void renderRoute();
   }
 
-  async function apiJson(url, opts = {}) {
-    const res = await fetch(url, {
-      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-      ...opts,
-    });
+  const HTTP_STATUS_MESSAGES = {
+    400: "Некорректный запрос",
+    401: "Требуется авторизация",
+    403: "Доступ запрещён",
+    404: "Не найдено",
+    422: "Ошибка валидации",
+    429: "Слишком много запросов, попробуйте позже",
+    500: "Ошибка сервера, попробуйте позже",
+    502: "Сервер временно недоступен",
+    503: "Сервис недоступен, попробуйте позже",
+    504: "Сервер не ответил вовремя",
+  };
+
+  function friendlyError(status, serverMsg) {
+    if (serverMsg) return serverMsg;
+    return HTTP_STATUS_MESSAGES[status] || `Ошибка запроса (код ${status})`;
+  }
+
+  const NETWORK_ERROR_MARKERS = ["failed to fetch", "networkerror", "network", "нет соединения", "не удалось выполнить", "сервер не отвечает", "timeout", "aborted"];
+
+  function isNetworkOrServerError(err) {
+    if (err instanceof TypeError) return true;
+    const status = err?.status;
+    if (status && status >= 500) return true;
+    const msg = (err?.message || "").toLowerCase();
+    return NETWORK_ERROR_MARKERS.some((m) => msg.includes(m));
+  }
+
+  function networkError(cause) {
+    const msg = (cause?.message || "").toLowerCase();
+    if (msg.includes("failed to fetch") || msg.includes("networkerror") || msg.includes("network"))
+      return "Нет соединения с сервером. Проверьте подключение к сети";
+    if (msg.includes("timeout") || msg.includes("aborted"))
+      return "Сервер не отвечает. Попробуйте позже";
+    return "Не удалось выполнить запрос. Попробуйте позже";
+  }
+
+  async function handleResponse(res) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const msg = data?.detail || data?.message || "Request failed";
+      const serverMsg = data?.detail || data?.message || "";
+      const msg = friendlyError(res.status, serverMsg);
       const err = new Error(msg);
       err.status = res.status;
       throw err;
     }
     return data;
+  }
+
+  async function apiJson(url, opts = {}) {
+    let res;
+    try {
+      res = await fetch(url, {
+        headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+        ...opts,
+      });
+    } catch (e) {
+      throw new Error(networkError(e));
+    }
+    return handleResponse(res);
   }
 
   async function apiForm(url, formData) {
-    const res = await fetch(url, { method: "POST", body: formData });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = data?.detail || data?.message || "Request failed";
-      const err = new Error(msg);
-      err.status = res.status;
-      throw err;
+    let res;
+    try {
+      res = await fetch(url, { method: "POST", body: formData });
+    } catch (e) {
+      throw new Error(networkError(e));
     }
-    return data;
+    return handleResponse(res);
   }
 
   async function apiFormAny(url, method, formData) {
-    const res = await fetch(url, { method, body: formData });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = data?.detail || data?.message || "Request failed";
-      const err = new Error(msg);
-      err.status = res.status;
-      throw err;
+    let res;
+    try {
+      res = await fetch(url, { method, body: formData });
+    } catch (e) {
+      throw new Error(networkError(e));
     }
-    return data;
+    return handleResponse(res);
   }
 
   function errorText(msg) {
@@ -219,6 +286,10 @@
       '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 17v-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 8h.01" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="1.4" opacity="0.9"/></svg>',
     download:
       '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v10M7 8l5 5 5-5M5 21h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    heart:
+      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 21s-7.25-4.5-9.5-8.7C.65 8.5 2.3 5.5 5.6 4.7c2.1-.5 4.2.3 5.4 1.9 1.2-1.6 3.3-2.4 5.4-1.9 3.3.8 4.95 3.8 3.1 7.6C19.25 16.5 12 21 12 21z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+    heartFill:
+      '<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 21s-7.25-4.5-9.5-8.7C.65 8.5 2.3 5.5 5.6 4.7c2.1-.5 4.2.3 5.4 1.9 1.2-1.6 3.3-2.4 5.4-1.9 3.3.8 4.95 3.8 3.1 7.6C19.25 16.5 12 21 12 21z"/></svg>',
     trash:
       '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 3h6m-8 4h10m-9 0l1 14h6l1-14M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     lock:
@@ -346,6 +417,7 @@
     return [
       mk("/profile", "Профиль", "profile"),
       mk("/search", "Поиск", "search"),
+      mk("/favorites", "Избранное", "favorites"),
       mk("/tracks", "Треки", "tracks"),
       mk("/", "Главная", "home"),
     ];
@@ -385,15 +457,49 @@
     } catch {}
   }
 
-  function updateTrackPrivacyInState(trackId, isPublic) {
-    const apply = (list) => {
+  function forEachTrackList(cb) {
+    const lists = [
+      state.myTracks,
+      state.publicTracks,
+      state.favoriteTracks,
+      state.uploadSessionTracks,
+      state.search?.items,
+    ];
+    for (const list of lists) cb(list);
+  }
+
+  function updateTrackInState(trackId, updater) {
+    forEachTrackList((list) => {
       if (!Array.isArray(list)) return;
       const item = list.find((x) => Number(x.id) === Number(trackId));
-      if (item) item.is_public = !!isPublic;
+      if (item) updater(item);
+    });
+  }
+
+  function updateTrackPrivacyInState(trackId, isPublic) {
+    updateTrackInState(trackId, (item) => {
+      item.is_public = !!isPublic;
+    });
+  }
+
+  function updateTrackFavoriteInState(trackId, isFavorite) {
+    updateTrackInState(trackId, (item) => {
+      item.is_favorite = !!isFavorite;
+    });
+  }
+
+  function removeTrackFromState(trackId) {
+    const remove = (list) => {
+      if (!Array.isArray(list)) return list;
+      return list.filter((x) => Number(x.id) !== Number(trackId));
     };
-    apply(state.myTracks);
-    apply(state.uploadSessionTracks);
-    apply(state.publicTracks);
+    state.myTracks = remove(state.myTracks) || [];
+    state.publicTracks = remove(state.publicTracks) || [];
+    state.favoriteTracks = remove(state.favoriteTracks) || [];
+    state.uploadSessionTracks = remove(state.uploadSessionTracks) || [];
+    if (state.search && Array.isArray(state.search.items)) {
+      state.search.items = remove(state.search.items) || [];
+    }
   }
 
   function tracksForScope(scope) {
@@ -401,6 +507,7 @@
       if (window.location.pathname === "/tracks/upload") return state.uploadSessionTracks;
       return state.myTracks;
     }
+    if (scope === "favorites") return state.favoriteTracks;
     return state.publicTracks;
   }
 
@@ -410,8 +517,10 @@
     app.innerHTML = "";
     const path = window.location.pathname;
     const classes = ["container"];
+    if (path === "/tracks") classes.push("page-tracks");
     if (path === "/profile") classes.push("page-profile");
     if (path === "/search") classes.push("page-search");
+    if (path === "/favorites") classes.push("page-favorites");
     if (path === "/tracks/upload") classes.push("page-upload");
     const containerClass = classes.join(" ");
     app.appendChild(
@@ -430,9 +539,11 @@
   }
 
   function trackItem(track, { own, scope } = {}) {
+    const ownedByUser = !!state.user && Number(track.owner_id) === Number(state.user.id);
+    const isOwnTrack = !!own || ownedByUser;
     const buttons = [];
     buttons.push(
-      el("button", { class: "icon-btn play-btn", type: "button", "data-file": `/media/${track.filename}`, "data-title": track.title, "aria-label": "Воспроизвести", html: ICON.play }, [])
+      el("button", { class: "icon-btn play-btn", type: "button", "data-file": `/media/${track.filename}`, "data-title": track.title, "data-track-id": String(track.id), "data-cover": track.coverFilename ? `/media/${track.coverFilename}` : "", "aria-label": "Воспроизвести", html: ICON.play }, [])
     );
     if (own) {
       // Order requested: play, privacy, info.
@@ -451,10 +562,30 @@
           ]
         )
       );
-    } else {
-      // Public list keeps download button.
+    }
+
+    if (state.user) {
       buttons.push(
-        el("a", { class: "icon-btn download-btn", href: `/media/${track.filename}`, download: "1", "aria-label": "Скачать", html: ICON.download }, [])
+        el(
+          "button",
+          {
+            class: `icon-btn favorite-btn ${track.is_favorite ? "favorite-on" : "favorite-off"}`,
+            type: "button",
+            "data-action": "toggle-favorite",
+            "data-track-id": String(track.id),
+            "data-favorite": track.is_favorite ? "1" : "0",
+            "aria-label": track.is_favorite ? "Убрать из избранного" : "Добавить в избранное",
+            title: track.is_favorite ? "Убрать из избранного" : "Добавить в избранное",
+            html: track.is_favorite ? ICON.heartFill : ICON.heart,
+          },
+          []
+        )
+      );
+    }
+
+    if (!own && (track.is_public || ownedByUser || scope === "favorites")) {
+      buttons.push(
+        el("a", { class: "icon-btn download-btn", href: `/media/${track.filename}`, download: "1", "data-track-id": String(track.id), "aria-label": "Скачать", html: ICON.download }, [])
       );
     }
 
@@ -474,7 +605,7 @@
       )
     );
 
-    return el("div", { class: "track-item" }, [
+    return el("div", { class: "track-item", "data-track-id": String(track.id) }, [
       el("div", { class: "track-thumb" }, [trackThumbNode(track)]),
       el("div", { class: "track-details" }, [
         el("div", { class: "track-top" }, [
@@ -482,11 +613,28 @@
           el("div", { class: "track-actions" }, buttons),
         ]),
         el("p", { class: "track-meta" }, [
-          own ? "Ваш трек" : track.owner_name ? `by ${track.owner_name}` : "uploaded",
+          isOwnTrack ? "Ваш трек" : track.owner_name ? `by ${track.owner_name}` : "uploaded",
           track.createdAt ? ` • ${fmtDate(track.createdAt)}` : "",
+          ` • ⬇ ${Number(track.downloadsCount ?? track.downloads ?? 0)}`,
+          ` • ♥ ${Number(track.favoritesCount ?? track.favorites ?? 0)}`,
         ]),
       ]),
     ]);
+  }
+
+  function refreshTrackItems(trackId) {
+    const items = document.querySelectorAll(`.track-item[data-track-id="${trackId}"]`);
+    for (const oldEl of items) {
+      const scope = oldEl.querySelector("[data-scope]")?.getAttribute("data-scope")
+        || (oldEl.querySelector(".privacy-btn") ? "mine" : "public");
+      const own = scope === "mine";
+      const list = tracksForScope(scope);
+      const track = list.find((x) => Number(x.id) === Number(trackId));
+      if (!track) continue;
+      const newEl = trackItem(track, { own, scope });
+      oldEl.replaceWith(newEl);
+    }
+    try { window.dispatchEvent(new Event("spotx:render")); } catch {}
   }
 
   function userSideCard() {
@@ -509,44 +657,61 @@
   async function viewHome() {
     document.title = "SpotX";
 
-    const lead = el("div", {}, [
-      el("h2", {}, ["SpotX"]),
-      el("p", { style: "margin-top:6px;color:var(--muted);line-height:1.5;" }, [
-        "Динамическое веб-приложение для публикации и прослушивания аудиотреков. ",
-        "Регистрируйтесь, загружайте свои треки и управляйте их доступностью.",
+    const head = el("div", { class: "section-head" }, [
+      el("h2", { class: "section-title" }, ["Топ-10 по скачиваниям"]),
+    ]);
+    const list = el("div", { class: "tracks-list" }, []);
+    const listStatus = el("div");
+    const main = el("div", {}, [head, list, listStatus]);
+
+    const aboutCard = el("div", { class: "card", style: "margin-top:12px;padding:14px;" }, [
+      el("h3", { style: "margin-bottom:6px;" }, ["SpotX"]),
+      el("p", { style: "color:var(--muted);line-height:1.5;font-size:.92em;" }, [
+        "Публикуйте, слушайте и скачивайте аудиотреки. ",
+        "Управляйте приватностью, добавляйте в избранное.",
+      ]),
+      el("div", { style: "margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;" }, [
+        el("a", { class: "public-btn", href: "/tracks", "data-link": "1" }, ["Все треки"]),
+        state.user
+          ? el("a", { class: "small-btn", href: "/profile", "data-link": "1" }, ["Профиль"])
+          : el("a", { class: "small-btn", href: "/auth/login", "data-link": "1" }, ["Войти"]),
       ]),
     ]);
 
-    const features = el("div", { style: "margin-top:14px;" }, [
-      el("h3", {}, ["Возможности"]),
-      el("ul", { style: "margin-top:8px;color:var(--muted);line-height:1.6;padding-left:18px;" }, [
-        el("li", {}, ["Прослушивание публичных треков"]),
-        el("li", {}, ["Личный кабинет и управление приватностью"]),
-        el("li", {}, ["Загрузка аудиофайлов"]),
-        el("li", {}, ["Сессии и защита приватных разделов"]),
-      ]),
-    ]);
-
-    const ctas = el("div", { style: "margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;" }, [
-      el("a", { class: "public-btn", href: "/tracks", "data-link": "1" }, ["Перейти к трекам"]),
-      state.user
-        ? el("a", { class: "small-btn", href: "/profile", "data-link": "1" }, ["Открыть профиль"])
-        : el("a", { class: "small-btn", href: "/auth/login", "data-link": "1" }, ["Войти"]),
-    ]);
+    const sidebar = el("div", {}, [userSideCard(), aboutCard]);
 
     shell({
       subtitle: "Главная",
       actions: topNav("home"),
-      main: el("div", {}, [lead, features, ctas]),
-      sidebar: userSideCard(),
+      main,
+      sidebar,
     });
+
+    // Load top tracks
+    listStatus.textContent = "Загрузка...";
+    try {
+      const data = await apiJson("/api/tracks/top");
+      const tracks = data.items || [];
+      listStatus.textContent = "";
+      if (!tracks.length) {
+        listStatus.appendChild(infoText("Пока нет скачиваний."));
+      } else {
+        for (const t of tracks) {
+          list.appendChild(trackItem(t, { own: false, scope: "public" }));
+        }
+      }
+    } catch {
+      listStatus.textContent = "";
+      listStatus.appendChild(infoText("Не удалось загрузить топ."));
+    }
+    try { window.dispatchEvent(new Event("spotx:render")); } catch {}
   }
 
   async function viewPublic() {
     setPageCleanup(null);
     document.title = "Треки - SpotX";
     const pageSize = 10;
-    const pager = { offset: 0, hasMore: true, loading: false, total: 0 };
+    const pager = { offset: 0, hasMore: true, loading: false, total: 0, error: null };
     state.publicTracks = [];
 
     const countNode = el("div", { class: "section-count" }, ["0 треков"]);
@@ -574,7 +739,9 @@
       else countNode.textContent = `${state.publicTracks.length} треков`;
 
       listStatus.innerHTML = "";
-      if (!state.publicTracks.length && !pager.loading) {
+      if (pager.error) {
+        listStatus.appendChild(errorText(pager.error));
+      } else if (!state.publicTracks.length && !pager.loading) {
         listStatus.appendChild(infoText("Пока нет публичных треков."));
       }
 
@@ -586,6 +753,7 @@
     async function loadMore() {
       if (pager.loading || !pager.hasMore) return;
       pager.loading = true;
+      pager.error = null;
       renderList();
       try {
         const url = `/api/tracks/public?limit=${pageSize}&offset=${pager.offset}`;
@@ -596,6 +764,8 @@
         pager.total = Number.isFinite(data.total) ? Number(data.total) : pager.total;
         if (typeof data.hasMore === "boolean") pager.hasMore = data.hasMore;
         else pager.hasMore = items.length === pageSize;
+      } catch (err) {
+        pager.error = err.message || "Не удалось загрузить треки";
       } finally {
         pager.loading = false;
         renderList();
@@ -1055,7 +1225,7 @@
     document.title = "Профиль - SpotX";
     if (!state.user) return navigate("/auth/login", { replace: true });
     const pageSize = 10;
-    const pager = { offset: 0, hasMore: true, loading: false, total: 0 };
+    const pager = { offset: 0, hasMore: true, loading: false, total: 0, error: null };
     state.myTracks = [];
 
     const list = el("div", { class: "tracks-list" }, []);
@@ -1102,7 +1272,9 @@
       else countNode.textContent = `${state.myTracks.length} треков`;
 
       listStatus.innerHTML = "";
-      if (!state.myTracks.length && !pager.loading) {
+      if (pager.error) {
+        listStatus.appendChild(errorText(pager.error));
+      } else if (!state.myTracks.length && !pager.loading) {
         listStatus.appendChild(infoText("У вас пока нет загруженных треков."));
       }
 
@@ -1114,6 +1286,7 @@
     async function loadMore() {
       if (pager.loading || !pager.hasMore) return;
       pager.loading = true;
+      pager.error = null;
       renderList();
       try {
         const url = `/api/tracks/mine?limit=${pageSize}&offset=${pager.offset}`;
@@ -1124,6 +1297,8 @@
         pager.total = Number.isFinite(data.total) ? Number(data.total) : pager.total;
         if (typeof data.hasMore === "boolean") pager.hasMore = data.hasMore;
         else pager.hasMore = items.length === pageSize;
+      } catch (err) {
+        pager.error = err.message || "Не удалось загрузить треки";
       } finally {
         pager.loading = false;
         renderList();
@@ -1572,8 +1747,10 @@
       const path = window.location.pathname;
       await loadPageJs(path);
       const views = window.SpotXViews || {};
+      const favoritesView = views.viewFavorites || window.SpotXViews?.viewFavorites;
       if (path === "/") return (views.viewHome || viewHome)();
       if (path === "/tracks") return (views.viewPublic || viewPublic)();
+      if (path === "/favorites") return favoritesView ? favoritesView() : viewNotFound();
       if (path === "/search") return (views.viewSearch || viewSearch)();
       if (path === "/auth/login") return (views.viewLogin || viewLogin)();
       if (path === "/auth/register") return (views.viewRegister || viewRegister)();
@@ -1586,21 +1763,35 @@
       return viewNotFound();
     } catch (err) {
       const app = qs("#app");
-      if (app) {
-        const msg = String(err?.message || err || "Unknown error");
-        const stack = String(err?.stack || "");
-        app.innerHTML = "";
+      if (!app) return;
+      const msg = String(err?.message || err || "Unknown error");
+      const isNetwork = isNetworkOrServerError(err);
+      app.innerHTML = "";
+      if (isNetwork) {
+        const retryBtn = el("button", { class: "public-btn", type: "button" }, ["Попробовать снова"]);
+        retryBtn.addEventListener("click", () => { state.userLoaded = false; void renderRoute(); });
         app.appendChild(
           el("div", { class: "container" }, [
-          el("div", { class: "card" }, [
-            el("h2", {}, ["Ошибка в клиентском коде"]),
-            el("p", { style: "color:var(--muted)" }, ["Откройте DevTools Console, но ниже есть текст ошибки:"]),
-            el("pre", { style: "white-space:pre-wrap;color:#fca5a5;background:rgba(255,255,255,0.03);padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.06);" }, [msg + (stack ? "\n\n" + stack : "")]),
-          ]),
-          window.location.pathname === "/tracks/upload" ? null : footer(),
-        ])
-      );
-    }
+            el("div", { class: "card", style: "text-align:center;padding:32px 20px;" }, [
+              el("h2", {}, ["Нет соединения"]),
+              el("p", { style: "color:var(--muted);margin-top:8px;" }, [msg]),
+              el("div", { style: "margin-top:16px;" }, [retryBtn]),
+            ]),
+          ])
+        );
+      } else {
+        const stack = String(err?.stack || "");
+        app.appendChild(
+          el("div", { class: "container" }, [
+            el("div", { class: "card" }, [
+              el("h2", {}, ["Ошибка в клиентском коде"]),
+              el("p", { style: "color:var(--muted)" }, ["Откройте DevTools Console, но ниже есть текст ошибки:"]),
+              el("pre", { style: "white-space:pre-wrap;color:#fca5a5;background:rgba(255,255,255,0.03);padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.06);" }, [msg + (stack ? "\n\n" + stack : "")]),
+            ]),
+            window.location.pathname === "/tracks/upload" ? null : footer(),
+          ])
+        );
+      }
     }
   }
 
@@ -1638,12 +1829,8 @@
               try {
                 await apiJson(`/api/tracks/${t.id}`, { method: "DELETE" });
                 hideModal();
-                if (window.location.pathname === "/tracks/upload") {
-                  state.uploadSessionTracks = state.uploadSessionTracks.filter((x) => Number(x.id) !== Number(t.id));
-                  await viewUpload();
-                } else {
-                  await viewProfile();
-                }
+                removeTrackFromState(t.id);
+                document.querySelectorAll(`.track-item[data-track-id="${t.id}"]`).forEach((el) => el.remove());
               } catch (err) {
                 alert(err.message || "Ошибка");
               }
@@ -1664,6 +1851,8 @@
                   el("div", { class: "info-v info-v-title" }, [t.title || "—"]),
                 ]),
                 el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Дата загрузки"]), el("div", { class: "info-v" }, [t.createdAt ? fmtDate(t.createdAt) : "—"])]),
+                el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Скачиваний"]), el("div", { class: "info-v" }, [String(Number(t.downloadsCount ?? t.downloads ?? 0))])]),
+                el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["В избранном"]), el("div", { class: "info-v" }, [String(Number(t.favoritesCount ?? t.favorites ?? 0))])]),
                 isMine
                   ? el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Доступ"]), el("div", { class: "info-v" }, [t.is_public ? "Публичный" : "Приватный"])])
                   : el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Автор"]), el("div", { class: "info-v" }, [t.owner_name || "—"])]),
@@ -1675,7 +1864,7 @@
           isMine
             ? el("div", { class: "modal-actions" }, [
                 el("div", { class: "modal-actions-left" }, [
-                  el("a", { class: "public-btn", href: `/media/${t.filename}`, download: "1" }, ["Скачать файл"]),
+                  el("a", { class: "public-btn download-btn", href: `/media/${t.filename}`, download: "1", "data-track-id": String(t.id) }, ["Скачать файл"]),
                 ]),
                 el("div", { class: "modal-actions-right" }, [
                   el("a", { class: "small-btn edit-btn", href: `/tracks/${t.id}/edit`, "data-link": "1" }, ["Изменить"]),
@@ -1695,8 +1884,73 @@
       try {
         const res = await apiJson(`/toggle_privacy/${id}`, { method: "POST", body: "{}" });
         updateTrackPrivacyInState(id, res?.is_public);
-        if (window.location.pathname === "/tracks/upload") await viewUpload();
-        else await viewProfile();
+        refreshTrackItems(id);
+      } catch (err) {
+        alert(err.message || "Ошибка");
+      }
+      return;
+    }
+
+    const downloadLink = e.target.closest("a.download-btn[data-track-id]");
+    if (downloadLink) {
+      e.preventDefault();
+      const trackId = downloadLink.getAttribute("data-track-id");
+      const href = downloadLink.getAttribute("href");
+      if (trackId) {
+        try {
+          const res = await apiJson(`/api/tracks/${trackId}/download`, { method: "POST", body: "{}" });
+          updateTrackInState(trackId, (item) => {
+            const count = res.downloadsCount ?? (Number(item.downloadsCount || item.downloads || 0) + 1);
+            item.downloadsCount = count;
+            item.downloads = count;
+          });
+          refreshTrackItems(trackId);
+          // Modal context — update info row if visible
+          const infoRows = document.querySelectorAll(".info-row");
+          for (const row of infoRows) {
+            const label = row.querySelector(".info-k");
+            if (label && label.textContent === "Скачиваний") {
+              const val = row.querySelector(".info-v");
+              if (val) val.textContent = String(res.downloadsCount);
+            }
+          }
+        } catch {
+          // Silently proceed with download even if API fails
+        }
+      }
+      // Trigger the actual file download
+      if (href) {
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = "";
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+      return;
+    }
+
+    const favoriteBtn = e.target.closest("button[data-action='toggle-favorite']");
+    if (favoriteBtn) {
+      const id = favoriteBtn.getAttribute("data-track-id");
+      if (!id) return;
+      const isFavorite = favoriteBtn.getAttribute("data-favorite") === "1";
+      try {
+        let res;
+        if (isFavorite) {
+          res = await apiJson(`/api/favorites/${id}`, { method: "DELETE", body: "{}" });
+        } else {
+          res = await apiJson(`/api/favorites/${id}`, { method: "POST", body: "{}" });
+        }
+        updateTrackFavoriteInState(id, !isFavorite);
+        if (res.favoritesCount != null) {
+          updateTrackInState(id, (item) => {
+            item.favoritesCount = res.favoritesCount;
+            item.favorites = res.favoritesCount;
+          });
+        }
+        refreshTrackItems(id);
       } catch (err) {
         alert(err.message || "Ошибка");
       }

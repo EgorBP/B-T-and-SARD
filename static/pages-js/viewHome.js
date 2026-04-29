@@ -1,37 +1,53 @@
 window.SpotXViews = window.SpotXViews || {};
-window.SpotXViews.viewHome =   async function viewHome() {
-    document.title = "SpotX";
+window.SpotXViews.viewHome = async function viewHome() {
+  document.title = "SpotX";
 
-    const lead = el("div", {}, [
-      el("h2", {}, ["SpotX"]),
-      el("p", { style: "margin-top:6px;color:var(--muted);line-height:1.5;" }, [
-        "Динамическое веб-приложение для публикации и прослушивания аудиотреков. ",
-        "Регистрируйтесь, загружайте свои треки и управляйте их доступностью.",
-      ]),
-    ]);
+  const head = el("div", { class: "section-head" }, [
+    el("h2", { class: "section-title" }, ["Топ-10 по скачиваниям"]),
+  ]);
+  const list = el("div", { class: "tracks-list" }, []);
+  const listStatus = el("div");
+  const main = el("div", {}, [head, list, listStatus]);
 
-    const features = el("div", { style: "margin-top:14px;" }, [
-      el("h3", {}, ["Возможности"]),
-      el("ul", { style: "margin-top:8px;color:var(--muted);line-height:1.6;padding-left:18px;" }, [
-        el("li", {}, ["Прослушивание публичных треков"]),
-        el("li", {}, ["Личный кабинет и управление приватностью"]),
-        el("li", {}, ["Загрузка аудиофайлов"]),
-        el("li", {}, ["Сессии и защита приватных разделов"]),
-      ]),
-    ]);
-
-    const ctas = el("div", { style: "margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;" }, [
-      el("a", { class: "public-btn", href: "/tracks", "data-link": "1" }, ["Перейти к трекам"]),
+  const aboutCard = el("div", { class: "card", style: "margin-top:12px;padding:14px;" }, [
+    el("h3", { style: "margin-bottom:6px;" }, ["SpotX"]),
+    el("p", { style: "color:var(--muted);line-height:1.5;font-size:.92em;" }, [
+      "Публикуйте, слушайте и скачивайте аудиотреки. ",
+      "Управляйте приватностью, добавляйте в избранное.",
+    ]),
+    el("div", { style: "margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;" }, [
+      el("a", { class: "public-btn", href: "/tracks", "data-link": "1" }, ["Все треки"]),
       state.user
-        ? el("a", { class: "small-btn", href: "/profile", "data-link": "1" }, ["Открыть профиль"])
+        ? el("a", { class: "small-btn", href: "/profile", "data-link": "1" }, ["Профиль"])
         : el("a", { class: "small-btn", href: "/auth/login", "data-link": "1" }, ["Войти"]),
-    ]);
+    ]),
+  ]);
 
-    shell({
-      subtitle: "Главная",
-      actions: topNav("home"),
-      main: el("div", {}, [lead, features, ctas]),
-      sidebar: userSideCard(),
-    });
+  const sidebar = el("div", {}, [userSideCard(), aboutCard]);
+
+  shell({
+    subtitle: "Главная",
+    actions: topNav("home"),
+    main,
+    sidebar,
+  });
+
+  // Load top tracks
+  listStatus.textContent = "Загрузка...";
+  try {
+    const data = await apiJson("/api/tracks/top");
+    const tracks = data.items || [];
+    listStatus.textContent = "";
+    if (!tracks.length) {
+      listStatus.appendChild(infoText("Пока нет скачиваний."));
+    } else {
+      for (const t of tracks) {
+        list.appendChild(trackItem(t, { own: false, scope: "public" }));
+      }
+    }
+  } catch {
+    listStatus.textContent = "";
+    listStatus.appendChild(infoText("Не удалось загрузить топ."));
   }
-
+  try { window.dispatchEvent(new Event("spotx:render")); } catch {}
+};

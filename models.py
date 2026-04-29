@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, func
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -32,3 +32,17 @@ class Track(Base):
 
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     owner = relationship("User", back_populates="tracks")
+
+    # Track analytics
+    downloads_count = Column(Integer, default=0, nullable=False)
+    favorites_count = Column(Integer, default=0, nullable=False)
+
+
+class TrackFavorite(Base):
+    __tablename__ = "track_favorites"
+    __table_args__ = (UniqueConstraint("user_id", "track_id", name="uq_track_favorite_user_track"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    track_id = Column(Integer, ForeignKey("tracks.id"), nullable=False, index=True)
+    created_at = Column(DateTime(), server_default=func.now(), nullable=False)

@@ -161,21 +161,35 @@ window.SpotXViews.viewTrackEdit =   async function viewTrackEdit(trackId) {
       return viewHome();
     } catch (err) {
       const app = qs("#app");
-      if (app) {
-        const msg = String(err?.message || err || "Unknown error");
-        const stack = String(err?.stack || "");
-        app.innerHTML = "";
+      if (!app) return;
+      const msg = String(err?.message || err || "Unknown error");
+      const isNetwork = isNetworkOrServerError(err);
+      app.innerHTML = "";
+      if (isNetwork) {
+        const retryBtn = el("button", { class: "public-btn", type: "button" }, ["Попробовать снова"]);
+        retryBtn.addEventListener("click", () => void renderRoute());
         app.appendChild(
           el("div", { class: "container" }, [
-          el("div", { class: "card" }, [
-            el("h2", {}, ["Ошибка в клиентском коде"]),
-            el("p", { style: "color:var(--muted)" }, ["Откройте DevTools Console, но ниже есть текст ошибки:"]),
-            el("pre", { style: "white-space:pre-wrap;color:#fca5a5;background:rgba(255,255,255,0.03);padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.06);" }, [msg + (stack ? "\n\n" + stack : "")]),
-          ]),
-          window.location.pathname === "/tracks/upload" ? null : footer(),
-        ])
-      );
-    }
+            el("div", { class: "card", style: "text-align:center;padding:32px 20px;" }, [
+              el("h2", {}, ["Нет соединения"]),
+              el("p", { style: "color:var(--muted);margin-top:8px;" }, [msg]),
+              el("div", { style: "margin-top:16px;" }, [retryBtn]),
+            ]),
+          ])
+        );
+      } else {
+        const stack = String(err?.stack || "");
+        app.appendChild(
+          el("div", { class: "container" }, [
+            el("div", { class: "card" }, [
+              el("h2", {}, ["Ошибка в клиентском коде"]),
+              el("p", { style: "color:var(--muted)" }, ["Откройте DevTools Console, но ниже есть текст ошибки:"]),
+              el("pre", { style: "white-space:pre-wrap;color:#fca5a5;background:rgba(255,255,255,0.03);padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.06);" }, [msg + (stack ? "\n\n" + stack : "")]),
+            ]),
+            window.location.pathname === "/tracks/upload" ? null : footer(),
+          ])
+        );
+      }
     }
   }
 

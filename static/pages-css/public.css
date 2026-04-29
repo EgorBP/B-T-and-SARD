@@ -1,6 +1,7 @@
 .tracks-list{
-  max-height:none;
-  overflow:visible;
+  max-height:calc(100vh - 200px);
+  overflow-y:auto;
+  overflow-x:hidden;
   padding-right:0;
   padding-bottom:96px;
 }

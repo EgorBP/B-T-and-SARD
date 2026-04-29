@@ -4,7 +4,7 @@ window.SpotXViews.viewProfile =   async function viewProfile() {
     document.title = "Профиль - SpotX";
     if (!state.user) return navigate("/auth/login", { replace: true });
     const pageSize = 10;
-    const pager = { offset: 0, hasMore: true, loading: false, total: 0 };
+    const pager = { offset: 0, hasMore: true, loading: false, total: 0, error: null };
     state.myTracks = [];
 
     const list = el("div", { class: "tracks-list" }, []);
@@ -51,7 +51,9 @@ window.SpotXViews.viewProfile =   async function viewProfile() {
       else countNode.textContent = `${state.myTracks.length} треков`;
 
       listStatus.innerHTML = "";
-      if (!state.myTracks.length && !pager.loading) {
+      if (pager.error) {
+        listStatus.appendChild(errorText(pager.error));
+      } else if (!state.myTracks.length && !pager.loading) {
         listStatus.appendChild(infoText("У вас пока нет загруженных треков."));
       }
 
@@ -63,6 +65,7 @@ window.SpotXViews.viewProfile =   async function viewProfile() {
     async function loadMore() {
       if (pager.loading || !pager.hasMore) return;
       pager.loading = true;
+      pager.error = null;
       renderList();
       try {
         const url = `/api/tracks/mine?limit=${pageSize}&offset=${pager.offset}`;
@@ -73,6 +76,8 @@ window.SpotXViews.viewProfile =   async function viewProfile() {
         pager.total = Number.isFinite(data.total) ? Number(data.total) : pager.total;
         if (typeof data.hasMore === "boolean") pager.hasMore = data.hasMore;
         else pager.hasMore = items.length === pageSize;
+      } catch (err) {
+        pager.error = err.message || "Не удалось загрузить треки";
       } finally {
         pager.loading = false;
         renderList();

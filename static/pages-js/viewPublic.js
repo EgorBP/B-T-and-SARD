@@ -3,7 +3,7 @@ window.SpotXViews.viewPublic =   async function viewPublic() {
     setPageCleanup(null);
     document.title = "Треки - SpotX";
     const pageSize = 10;
-    const pager = { offset: 0, hasMore: true, loading: false, total: 0 };
+    const pager = { offset: 0, hasMore: true, loading: false, total: 0, error: null };
     state.publicTracks = [];
 
     const countNode = el("div", { class: "section-count" }, ["0 треков"]);
@@ -31,7 +31,9 @@ window.SpotXViews.viewPublic =   async function viewPublic() {
       else countNode.textContent = `${state.publicTracks.length} треков`;
 
       listStatus.innerHTML = "";
-      if (!state.publicTracks.length && !pager.loading) {
+      if (pager.error) {
+        listStatus.appendChild(errorText(pager.error));
+      } else if (!state.publicTracks.length && !pager.loading) {
         listStatus.appendChild(infoText("Пока нет публичных треков."));
       }
 
@@ -43,6 +45,7 @@ window.SpotXViews.viewPublic =   async function viewPublic() {
     async function loadMore() {
       if (pager.loading || !pager.hasMore) return;
       pager.loading = true;
+      pager.error = null;
       renderList();
       try {
         const url = `/api/tracks/public?limit=${pageSize}&offset=${pager.offset}`;
@@ -53,6 +56,8 @@ window.SpotXViews.viewPublic =   async function viewPublic() {
         pager.total = Number.isFinite(data.total) ? Number(data.total) : pager.total;
         if (typeof data.hasMore === "boolean") pager.hasMore = data.hasMore;
         else pager.hasMore = items.length === pageSize;
+      } catch (err) {
+        pager.error = err.message || "Не удалось загрузить треки";
       } finally {
         pager.loading = false;
         renderList();

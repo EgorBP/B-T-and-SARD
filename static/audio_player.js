@@ -3,12 +3,13 @@
   const floating = document.getElementById("floating-player");
   const playerTrack = document.getElementById("player-track");
   const playerThumb = document.getElementById("player-thumb");
+  const playerCoverImg = document.getElementById("player-cover-img");
+  const playerCoverFallback = document.getElementById("player-cover-fallback");
   const playerPlay = document.getElementById("player-play");
   const playerProgress = document.getElementById("player-progress");
   const playerCurrent = document.getElementById("player-current");
   const playerDuration = document.getElementById("player-duration");
   const playerVolume = document.getElementById("player-volume");
-  const playerDownload = document.getElementById("player-download");
   const playerMute = document.getElementById("player-mute");
   const playerClose = document.getElementById("player-close");
   const playerOpen = document.getElementById("player-open");
@@ -21,12 +22,10 @@
   let lastSyncedSrc = "";
 
   const ICON = {
-    play: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 3v18l15-9L5 3z" fill="currentColor"/></svg>',
-    pause: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 5h4v14H6zM14 5h4v14h-4z" fill="currentColor"/></svg>',
-    volume: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 9v6h4l5 5V4L9 9H5z" fill="currentColor"/></svg>',
-    mute: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16.5 12l4-4m0 8l-4-4M5 9v6h4l5 5V4L9 9H5z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    download:
-      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v10M7 8l5 5 5-5M5 21h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    play: '<svg viewBox="0 0 24 24" fill="none"><path d="M6 4l14 8-14 8V4z" fill="currentColor"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" fill="none"><path d="M6 4h4v16H6zM14 4h4v16h-4z" fill="currentColor"/></svg>',
+    volume: '<svg viewBox="0 0 24 24" fill="none"><path d="M11 5L6 9H2v6h4l5 4V5z" fill="currentColor"/><path d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    mute: '<svg viewBox="0 0 24 24" fill="none"><path d="M11 5L6 9H2v6h4l5 4V5z" fill="currentColor"/><path d="M23 9l-6 6M17 9l6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
   };
 
   function fmtTime(sec) {
@@ -46,23 +45,37 @@
   }
 
   function hidePlayer() {
-    try {
-      player.pause();
-    } catch {}
+    try { player.pause(); } catch {}
     floating.classList.remove("active");
     floating.setAttribute("aria-hidden", "true");
     isHidden = true;
     if (playerOpen) playerOpen.style.display = "flex";
   }
 
-  function setTrack({ src, title }) {
+  function setCover(coverUrl, title) {
+    const fallbackText = (title || "X").slice(0, 2).toUpperCase();
+    if (coverUrl) {
+      if (playerCoverImg) {
+        playerCoverImg.src = coverUrl;
+        playerCoverImg.alt = title || "Обложка";
+        playerCoverImg.style.display = "block";
+      }
+      if (playerCoverFallback) playerCoverFallback.style.display = "none";
+      if (playerThumb) playerThumb.classList.add("has-cover");
+    } else {
+      if (playerCoverImg) { playerCoverImg.src = ""; playerCoverImg.style.display = "none"; }
+      if (playerCoverFallback) { playerCoverFallback.textContent = fallbackText; playerCoverFallback.style.display = "flex"; }
+      if (playerThumb) playerThumb.classList.remove("has-cover");
+    }
+  }
+
+  function setTrack({ src, title, trackId, cover }) {
     if (!src) return;
     if (currentSrc === src) return;
     currentSrc = src;
     player.src = src;
     if (playerTrack) playerTrack.textContent = title || "Трек";
-    if (playerThumb) playerThumb.textContent = (title || "X").slice(0, 2).toUpperCase();
-    if (playerDownload) playerDownload.setAttribute("href", src);
+    setCover(cover, title);
   }
 
   function indexListButtons() {
@@ -98,12 +111,26 @@
     lastSyncedSrc = currentSrc;
   }
 
+  /* Progress bar gradient fill */
+  function updateProgressFill() {
+    if (!playerProgress) return;
+    const val = parseFloat(playerProgress.value) || 0;
+    playerProgress.style.setProperty("--progress", `${val}%`);
+  }
+
+  function updateVolumeFill() {
+    if (!playerVolume) return;
+    const val = (parseFloat(playerVolume.value) || 0) * 100;
+    playerVolume.style.setProperty("--volume", `${val}%`);
+  }
+
+  // Init icons
   if (playerPlay) playerPlay.innerHTML = ICON.play;
   if (playerMute) playerMute.innerHTML = ICON.volume;
-  if (playerDownload) playerDownload.innerHTML = ICON.download + '<span style="margin-left:8px;font-weight:700;">Скачать</span>';
   if (playerOpen) playerOpen.style.display = "none";
+  setCover("", "");
 
-  // Делегированный хендлер: работает на динамических списках SPA
+  // Delegated click handler for play buttons in SPA lists
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest(".play-btn");
     if (!btn) return;
@@ -111,16 +138,15 @@
 
     const src = btn.getAttribute("data-file");
     const title = btn.getAttribute("data-title") || "";
+    const trackId = btn.getAttribute("data-track-id") || "";
+    const cover = btn.getAttribute("data-cover") || "";
     if (!src) return;
 
     if (isHidden) showPlayer(false);
 
-    // Toggle: clicking current track pauses/resumes.
     if (currentSrc === src && player.src) {
       if (player.paused || player.ended) {
-        try {
-          await player.play();
-        } catch {}
+        try { await player.play(); } catch {}
       } else {
         player.pause();
       }
@@ -129,10 +155,8 @@
       return;
     }
 
-    setTrack({ src, title });
-    try {
-      await player.play();
-    } catch {}
+    setTrack({ src, title, trackId, cover });
+    try { await player.play(); } catch {}
     showPlayer(false);
     syncButtons();
   });
@@ -144,9 +168,7 @@
     playerPlay.addEventListener("click", async () => {
       if (!player.src) return;
       if (player.paused) {
-        try {
-          await player.play();
-        } catch {}
+        try { await player.play(); } catch {}
       } else {
         player.pause();
       }
@@ -164,6 +186,7 @@
         playerMute.innerHTML = ICON.mute;
         playerVolume.value = "0";
       }
+      updateVolumeFill();
     });
 
     playerVolume.addEventListener("input", () => {
@@ -175,7 +198,9 @@
         player.muted = false;
         playerMute.innerHTML = ICON.volume;
       }
+      updateVolumeFill();
     });
+    updateVolumeFill();
   }
 
   if (playerProgress && playerCurrent && playerDuration) {
@@ -188,12 +213,15 @@
       if (player.duration && isFinite(player.duration)) {
         const val = (player.currentTime / player.duration) * 100;
         playerProgress.value = String(val || 0);
+        updateProgressFill();
       }
     });
     playerProgress.addEventListener("input", () => {
       if (!player.duration || !isFinite(player.duration)) return;
       player.currentTime = (parseFloat(playerProgress.value) / 100) * player.duration;
+      updateProgressFill();
     });
+    updateProgressFill();
   }
 
   player.addEventListener("play", () => {
@@ -209,10 +237,8 @@
     syncButtons();
   });
 
-  // Update play/pause icons after SPA renders lists.
   window.addEventListener("spotx:render", () => {
     indexListButtons();
-    // On each render set all buttons to "play" quickly, then restore current state.
     for (const arr of buttonsBySrc.values()) {
       for (const btn of arr) {
         btn.innerHTML = ICON.play;
@@ -224,7 +250,6 @@
     syncButtons();
   });
 
-  // Initial state (for first load without SPA navigation).
   indexListButtons();
   for (const arr of buttonsBySrc.values()) {
     for (const btn of arr) {

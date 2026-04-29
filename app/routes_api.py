@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from models import Track, User
+from models import Track, TrackFavorite, User
 
 from .auth import (
     LoginRequest,
@@ -56,6 +56,43 @@ def _like_any_case(col, q: str):
     variants = {raw, raw.lower(), raw.upper(), raw.title(), raw.capitalize()}
     variants = [v for v in variants if v]
     return or_(*[col.like(f"%{v}%") for v in variants])
+
+
+def _favorite_track_ids(db: Session, user_id: int, track_ids: list[int]) -> set[int]:
+    if not track_ids:
+        return set()
+    rows = (
+        db.query(TrackFavorite.track_id)
+        .filter(TrackFavorite.user_id == user_id, TrackFavorite.track_id.in_(track_ids))
+        .all()
+    )
+    return {int(row[0]) for row in rows}
+
+
+def _serialize_track(track: Track, *, favorite_ids: set[int] | None = None, favorited_at=None):
+    payload = {
+        "id": track.id,
+        "title": track.title,
+        "filename": track.filename,
+        "coverFilename": track.cover_filename,
+        "description": track.description,
+        "is_public": bool(track.is_public),
+        "createdAt": track.created_at,
+        "owner_id": track.owner_id,
+        "owner_name": track.owner.name if track.owner else None,
+    }
+    # Новый: статистика трека и доп. алиасы для удобства клиента
+    downloads = getattr(track, "downloads_count", 0) or 0
+    favorites = getattr(track, "favorites_count", 0) or 0
+    payload["downloadsCount"] = downloads
+    payload["downloads"] = downloads
+    payload["favoritesCount"] = favorites
+    payload["favorites"] = favorites
+    if favorite_ids is not None:
+        payload["is_favorite"] = track.id in favorite_ids
+    if favorited_at is not None:
+        payload["favoritedAt"] = favorited_at
+    return payload
 
 
 @router.post("/api/auth/register")
@@ -133,10 +170,46 @@ def logout_api(request: Request):
     return {"ok": True}
 
 
+TOP_TRACKS_LIMIT = 10
+
+
+@router.get("/api/tracks/top")
+def top_tracks_api(request: Request, db: Session = Depends(get_db)):
+    tracks = (
+        db.query(Track)
+        .filter(Track.is_public == True, Track.downloads_count > 0)
+        .order_by(Track.downloads_count.desc(), Track.id.desc())
+        .limit(TOP_TRACKS_LIMIT)
+        .all()
+    )
+    favorite_ids = set()
+    if request.session.get("user_id"):
+        favorite_ids = _favorite_track_ids(db, request.session["user_id"], [t.id for t in tracks])
+    items = [_serialize_track(t, favorite_ids=favorite_ids) for t in tracks]
+    return {"items": items}
+
+
 @router.get("/api/tracks/public")
-def public_tracks_api(limit: int | None = None, offset: int = 0, db: Session = Depends(get_db)):
+def public_tracks_api(
+    request: Request,
+    limit: int | None = None,
+    offset: int = 0,
+    minDownloads: int | None = None,
+    maxDownloads: int | None = None,
+    minFavorites: int | None = None,
+    maxFavorites: int | None = None,
+    db: Session = Depends(get_db),
+):
     limit, offset = _validate_pagination(limit, offset)
     query = db.query(Track).filter(Track.is_public == True)
+    if minDownloads is not None:
+        query = query.filter(Track.downloads_count >= minDownloads)
+    if maxDownloads is not None:
+        query = query.filter(Track.downloads_count <= maxDownloads)
+    if minFavorites is not None:
+        query = query.filter(Track.favorites_count >= minFavorites)
+    if maxFavorites is not None:
+        query = query.filter(Track.favorites_count <= maxFavorites)
     total = query.with_entities(func.count(Track.id)).scalar() or 0
 
     tracks_query = query.order_by(Track.created_at.desc(), Track.id.desc())
@@ -144,21 +217,10 @@ def public_tracks_api(limit: int | None = None, offset: int = 0, db: Session = D
         tracks_query = tracks_query.offset(offset).limit(limit)
 
     tracks = tracks_query.all()
-    items = []
-    for t in tracks:
-        items.append(
-            {
-                "id": t.id,
-                "title": t.title,
-                "filename": t.filename,
-                "coverFilename": t.cover_filename,
-                "description": t.description,
-                "is_public": bool(t.is_public),
-                "createdAt": t.created_at,
-                "owner_id": t.owner_id,
-                "owner_name": t.owner.name if t.owner else None,
-            }
-        )
+    favorite_ids = set()
+    if request.session.get("user_id"):
+        favorite_ids = _favorite_track_ids(db, request.session["user_id"], [t.id for t in tracks])
+    items = [_serialize_track(t, favorite_ids=favorite_ids) for t in tracks]
 
     if limit is None:
         return {"items": items, "total": total, "offset": 0, "limit": total, "hasMore": False}
@@ -167,10 +229,27 @@ def public_tracks_api(limit: int | None = None, offset: int = 0, db: Session = D
 
 
 @router.get("/api/tracks/mine")
-def my_tracks_api(request: Request, limit: int | None = None, offset: int = 0, db: Session = Depends(get_db)):
+def my_tracks_api(
+    request: Request,
+    limit: int | None = None,
+    offset: int = 0,
+    minDownloads: int | None = None,
+    maxDownloads: int | None = None,
+    minFavorites: int | None = None,
+    maxFavorites: int | None = None,
+    db: Session = Depends(get_db),
+):
     limit, offset = _validate_pagination(limit, offset)
     user = require_user(request, db)
     query = db.query(Track).filter(Track.owner_id == user.id)
+    if minDownloads is not None:
+        query = query.filter(Track.downloads_count >= minDownloads)
+    if maxDownloads is not None:
+        query = query.filter(Track.downloads_count <= maxDownloads)
+    if minFavorites is not None:
+        query = query.filter(Track.favorites_count >= minFavorites)
+    if maxFavorites is not None:
+        query = query.filter(Track.favorites_count <= maxFavorites)
     total = query.with_entities(func.count(Track.id)).scalar() or 0
 
     tracks_query = query.order_by(Track.created_at.desc(), Track.id.desc())
@@ -178,18 +257,13 @@ def my_tracks_api(request: Request, limit: int | None = None, offset: int = 0, d
         tracks_query = tracks_query.offset(offset).limit(limit)
 
     tracks = tracks_query.all()
-    items = [
-        {
-            "id": t.id,
-            "title": t.title,
-            "filename": t.filename,
-            "coverFilename": t.cover_filename,
-            "description": t.description,
-            "is_public": bool(t.is_public),
-            "createdAt": t.created_at,
-        }
-        for t in tracks
-    ]
+    favorite_ids = _favorite_track_ids(db, user.id, [t.id for t in tracks])
+    items = []
+    for t in tracks:
+        payload = _serialize_track(t, favorite_ids=favorite_ids)
+        payload.pop("owner_id", None)
+        payload.pop("owner_name", None)
+        items.append(payload)
 
     if limit is None:
         return {"items": items, "total": total, "offset": 0, "limit": total, "hasMore": False}
@@ -370,6 +444,7 @@ def delete_track_api(track_id: int, request: Request, db: Session = Depends(get_
 
     filename = track.filename or ""
     cover_filename = track.cover_filename or ""
+    db.query(TrackFavorite).filter(TrackFavorite.track_id == track_id).delete(synchronize_session=False)
     db.delete(track)
     db.commit()
 
@@ -395,8 +470,57 @@ def delete_track_api(track_id: int, request: Request, db: Session = Depends(get_
     return {"ok": True}
 
 
+@router.post("/api/tracks/{track_id}/download")
+def track_download_api(track_id: int, db: Session = Depends(get_db)):
+    track = db.get(Track, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Трек не найден")
+    if track.downloads_count is None:
+        track.downloads_count = 0
+    track.downloads_count += 1
+    db.commit()
+    return {"ok": True, "downloadsCount": track.downloads_count}
+
+
+@router.get("/api/favorites")
+def favorites_api(request: Request, limit: int | None = None, offset: int = 0, db: Session = Depends(get_db)):
+    limit, offset = _validate_pagination(limit, offset)
+    user = require_user(request, db)
+
+    query = (
+        db.query(Track, TrackFavorite.created_at.label("favorited_at"))
+        .join(TrackFavorite, TrackFavorite.track_id == Track.id)
+        .filter(TrackFavorite.user_id == user.id)
+        .filter(or_(Track.is_public == True, Track.owner_id == user.id))
+    )
+    total = query.with_entities(func.count(Track.id)).scalar() or 0
+
+    rows_query = query.order_by(TrackFavorite.created_at.desc(), Track.id.desc())
+    if limit is not None:
+        rows_query = rows_query.offset(offset).limit(limit)
+
+    rows = rows_query.all()
+    items = []
+    for track, favorited_at in rows:
+        items.append(_serialize_track(track, favorite_ids={track.id}, favorited_at=favorited_at))
+
+    if limit is None:
+        return {"items": items, "total": total, "offset": 0, "limit": total, "hasMore": False}
+
+    return {"items": items, "total": total, "offset": offset, "limit": limit, "hasMore": offset + len(items) < total}
+
+
 @router.get("/api/search/public")
-def search_public_tracks_api(q: str, by: str = "title", db: Session = Depends(get_db)):
+def search_public_tracks_api(
+    request: Request,
+    q: str,
+    by: str = "title",
+    minDownloads: int | None = None,
+    maxDownloads: int | None = None,
+    minFavorites: int | None = None,
+    maxFavorites: int | None = None,
+    db: Session = Depends(get_db),
+):
     """
     Search among public tracks.
     by: "title" | "author"
@@ -411,50 +535,99 @@ def search_public_tracks_api(q: str, by: str = "title", db: Session = Depends(ge
     else:
         raise HTTPException(status_code=422, detail="Некорректный параметр by")
 
+    if minDownloads is not None:
+        query = query.filter(Track.downloads_count >= minDownloads)
+    if maxDownloads is not None:
+        query = query.filter(Track.downloads_count <= maxDownloads)
+    if minFavorites is not None:
+        query = query.filter(Track.favorites_count >= minFavorites)
+    if maxFavorites is not None:
+        query = query.filter(Track.favorites_count <= maxFavorites)
+
     tracks = query.all()
-    items = []
-    for t in tracks:
-        items.append(
-            {
-                "id": t.id,
-                "title": t.title,
-                "filename": t.filename,
-                "coverFilename": t.cover_filename,
-                "description": t.description,
-                "is_public": bool(t.is_public),
-                "createdAt": t.created_at,
-                "owner_id": t.owner_id,
-                "owner_name": t.owner.name if t.owner else None,
-            }
-        )
+    favorite_ids = set()
+    if request.session.get("user_id"):
+        favorite_ids = _favorite_track_ids(db, request.session["user_id"], [t.id for t in tracks])
+    items = [_serialize_track(t, favorite_ids=favorite_ids) for t in tracks]
     return {"items": items}
 
 
 @router.get("/api/search/mine")
-def search_my_tracks_api(request: Request, q: str, db: Session = Depends(get_db)):
+def search_my_tracks_api(
+    request: Request,
+    q: str,
+    minDownloads: int | None = None,
+    maxDownloads: int | None = None,
+    minFavorites: int | None = None,
+    maxFavorites: int | None = None,
+    db: Session = Depends(get_db),
+):
     """
     Search among current user's tracks (title + description).
     """
     user = require_user(request, db)
     qn = _normalize_search_query(q)
 
+    # Apply optional filters
+    if minDownloads is not None:
+        query = db.query(Track).filter(Track.owner_id == user.id, Track.downloads_count >= minDownloads)
+    else:
+        query = db.query(Track).filter(Track.owner_id == user.id)
+    if maxDownloads is not None:
+        query = query.filter(Track.downloads_count <= maxDownloads)
+    if minFavorites is not None:
+        query = query.filter(Track.favorites_count >= minFavorites)
+    if maxFavorites is not None:
+        query = query.filter(Track.favorites_count <= maxFavorites)
+
     tracks = (
-        db.query(Track)
-        .filter(Track.owner_id == user.id)
+        query
         .filter(or_(_like_any_case(Track.title, qn), _like_any_case(Track.description, qn)))
         .all()
     )
 
-    items = [
-        {
-            "id": t.id,
-            "title": t.title,
-            "filename": t.filename,
-            "coverFilename": t.cover_filename,
-            "description": t.description,
-            "is_public": bool(t.is_public),
-            "createdAt": t.created_at,
-        }
-        for t in tracks
-    ]
+    favorite_ids = _favorite_track_ids(db, user.id, [t.id for t in tracks])
+    items = [_serialize_track(t, favorite_ids=favorite_ids) for t in tracks]
     return {"items": items}
+
+
+@router.post("/api/favorites/{track_id}")
+def add_favorite_api(track_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    track = db.get(Track, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Трек не найден")
+    if not track.is_public and track.owner_id != user.id:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    existing = (
+        db.query(TrackFavorite)
+        .filter(TrackFavorite.user_id == user.id, TrackFavorite.track_id == track_id)
+        .first()
+    )
+    if not existing:
+        db.add(TrackFavorite(user_id=user.id, track_id=track_id))
+        if track.favorites_count is None:
+            track.favorites_count = 0
+        track.favorites_count = track.favorites_count + 1
+        db.commit()
+    db.refresh(track)
+    return {"ok": True, "is_favorite": True, "favoritesCount": track.favorites_count or 0}
+
+
+@router.delete("/api/favorites/{track_id}")
+def remove_favorite_api(track_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    existing = (
+        db.query(TrackFavorite)
+        .filter(TrackFavorite.user_id == user.id, TrackFavorite.track_id == track_id)
+        .first()
+    )
+    if existing:
+        db.delete(existing)
+        track = db.get(Track, track_id)
+        if track and track.favorites_count:
+            track.favorites_count = max(0, track.favorites_count - 1)
+        db.commit()
+    track = db.get(Track, track_id)
+    fav_count = (track.favorites_count or 0) if track else 0
+    return {"ok": True, "is_favorite": False, "favoritesCount": fav_count}

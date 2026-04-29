@@ -33,6 +33,11 @@ def tracks_page(request: Request):
     return render_spa(request)
 
 
+@router.get("/favorites")
+def favorites_page(request: Request):
+    return render_spa(request)
+
+
 @router.get("/search")
 def search_page(request: Request):
     return render_spa(request)

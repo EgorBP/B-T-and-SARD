@@ -19,6 +19,7 @@ def create_app() -> FastAPI:
     # Initialize DB schema and ensure backward-compatible columns exist.
     Base.metadata.create_all(bind=engine)
     _ensure_user_recovery_columns()
+    _ensure_track_metric_columns()
     ensure_media_dirs()
 
     app = FastAPI()
@@ -63,3 +64,18 @@ def _ensure_user_recovery_columns() -> None:
             ),
             {"default_question": DEFAULT_RECOVERY_QUESTION},
         )
+
+
+def _ensure_track_metric_columns() -> None:
+    if engine.dialect.name != "sqlite":
+        return
+
+    with engine.begin() as conn:
+        inspector = inspect(conn)
+        columns = {col["name"] for col in inspector.get_columns("tracks")} if inspector.has_table("tracks") else set()
+        if not columns:
+            return
+        if "downloads_count" not in columns:
+            conn.execute(text("ALTER TABLE tracks ADD COLUMN downloads_count INTEGER NOT NULL DEFAULT 0"))
+        if "favorites_count" not in columns:
+            conn.execute(text("ALTER TABLE tracks ADD COLUMN favorites_count INTEGER NOT NULL DEFAULT 0"))
