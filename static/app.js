@@ -112,6 +112,23 @@
     return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((email || "").trim().toLowerCase());
   }
 
+  const RECOVERY_QUESTIONS = [
+    "Как звали вашего первого питомца?",
+    "Как называлась улица, где вы выросли?",
+    "Какое имя было у вашего любимого учителя?",
+    "Как назывался ваш первый фильм/книга, который вам запомнился?",
+    "Какой был ваш любимый город в детстве?",
+  ];
+
+  function recoveryQuestionSelect(id, value) {
+    const select = el("select", { id, class: "input", required: "1" });
+    for (const question of RECOVERY_QUESTIONS) {
+      select.appendChild(el("option", { value: question }, [question]));
+    }
+    select.value = value || RECOVERY_QUESTIONS[0];
+    return select;
+  }
+
   const ICON = {
     info:
       '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 17v-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 8h.01" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="1.4" opacity="0.9"/></svg>',
@@ -776,11 +793,17 @@
     if (state.user) return navigate("/profile", { replace: true });
     const email = el("input", { class: "input", type: "email", placeholder: "Email", required: "1" });
     const name = el("input", { class: "input", placeholder: "Имя", required: "1" });
+    const recoveryQuestion = recoveryQuestionSelect("register-question");
+    const recoveryAnswer = el("input", { class: "input", placeholder: "Ответ на вопрос", required: "1" });
     const password = el("input", { class: "input", type: "password", placeholder: "Пароль (мин. 6)", required: "1" });
     const password2 = el("input", { class: "input", type: "password", placeholder: "Повторите пароль", required: "1" });
     const msg = el("div");
     let pending = false;
     const submit = el("button", { class: "upload-btn", type: "submit" }, ["Зарегистрироваться"]);
+    const recoveryGroup = el("div", { class: "recovery-group" }, [
+      field("Секретный вопрос", recoveryQuestion),
+      field("Ответ", recoveryAnswer),
+    ]);
 
     const form = el("form", {
       class: "upload-form",
@@ -790,17 +813,30 @@
         msg.innerHTML = "";
         if (!validateEmail(email.value)) return msg.appendChild(errorText("Введите корректный email"));
         if ((name.value || "").trim().length < 2) return msg.appendChild(errorText("Имя должно содержать минимум 2 символа"));
+        if (!RECOVERY_QUESTIONS.includes(recoveryQuestion.value)) return msg.appendChild(errorText("Выберите корректный секретный вопрос"));
+        if ((recoveryAnswer.value || "").trim().length < 2) return msg.appendChild(errorText("Ответ на секретный вопрос слишком короткий"));
         if ((password.value || "").length < 6) return msg.appendChild(errorText("Пароль должен быть не короче 6 символов"));
         if (password.value !== password2.value) return msg.appendChild(errorText("Пароли не совпадают"));
         pending = true;
         email.disabled = true;
         name.disabled = true;
+        recoveryQuestion.disabled = true;
+        recoveryAnswer.disabled = true;
         password.disabled = true;
         password2.disabled = true;
         submit.disabled = true;
         msg.appendChild(loadingRow("Регистрируем..."));
         try {
-          const data = await apiJson("/api/auth/register", { method: "POST", body: JSON.stringify({ email: email.value, name: name.value, password: password.value }) });
+          const data = await apiJson("/api/auth/register", {
+            method: "POST",
+            body: JSON.stringify({
+              email: email.value,
+              name: name.value,
+              password: password.value,
+              recoveryQuestion: recoveryQuestion.value,
+              recoveryAnswer: recoveryAnswer.value,
+            }),
+          });
           state.user = { id: data.id, email: data.email, name: data.name, createdAt: data.createdAt, avatarFilename: data.avatarFilename || null };
           state.userLoaded = true;
           navigate("/profile");
@@ -811,12 +847,14 @@
           pending = false;
           email.disabled = false;
           name.disabled = false;
+          recoveryQuestion.disabled = false;
+          recoveryAnswer.disabled = false;
           password.disabled = false;
           password2.disabled = false;
           submit.disabled = false;
         }
       },
-    }, [email, name, password, password2, submit, msg]);
+    }, [email, name, recoveryGroup, password, password2, submit, msg]);
 
     shell({
       subtitle: "Регистрация",
@@ -829,7 +867,8 @@
   async function viewForgot() {
     document.title = "Восстановление пароля - SpotX";
     const email = el("input", { class: "input", type: "email", placeholder: "Email", required: "1" });
-    const phrase = el("input", { class: "input", placeholder: "Секретная фраза", required: "1" });
+    const recoveryQuestion = recoveryQuestionSelect("forgot-question");
+    const recoveryAnswer = el("input", { class: "input", placeholder: "Ответ на вопрос", required: "1" });
     const password = el("input", { class: "input", type: "password", placeholder: "Новый пароль (мин. 6)", required: "1" });
     const password2 = el("input", { class: "input", type: "password", placeholder: "Повторите новый пароль", required: "1" });
     const msg = el("div");
@@ -843,18 +882,28 @@
         if (pending) return;
         msg.innerHTML = "";
         if (!validateEmail(email.value)) return msg.appendChild(errorText("Введите корректный email"));
-        if ((phrase.value || "").trim().length < 10) return msg.appendChild(errorText("Секретная фраза слишком короткая"));
+        if (!RECOVERY_QUESTIONS.includes(recoveryQuestion.value)) return msg.appendChild(errorText("Выберите корректный секретный вопрос"));
+        if ((recoveryAnswer.value || "").trim().length < 2) return msg.appendChild(errorText("Ответ на секретный вопрос слишком короткий"));
         if ((password.value || "").length < 6) return msg.appendChild(errorText("Пароль должен быть не короче 6 символов"));
         if (password.value !== password2.value) return msg.appendChild(errorText("Пароли не совпадают"));
         pending = true;
         email.disabled = true;
-        phrase.disabled = true;
+        recoveryQuestion.disabled = true;
+        recoveryAnswer.disabled = true;
         password.disabled = true;
         password2.disabled = true;
         submit.disabled = true;
         msg.appendChild(loadingRow("Отправляем..."));
         try {
-          await apiJson("/api/auth/reset-password", { method: "POST", body: JSON.stringify({ email: email.value, recoveryPhrase: phrase.value, newPassword: password.value }) });
+          await apiJson("/api/auth/reset-password", {
+            method: "POST",
+            body: JSON.stringify({
+              email: email.value,
+              recoveryQuestion: recoveryQuestion.value,
+              recoveryAnswer: recoveryAnswer.value,
+              newPassword: password.value,
+            }),
+          });
           msg.innerHTML = "";
           msg.appendChild(infoText("Пароль изменен. Теперь войдите."));
           msg.appendChild(el("div", { style: "margin-top:10px;" }, [el("a", { class: "public-btn", href: "/auth/login", "data-link": "1" }, ["Вход"])]));
@@ -864,19 +913,20 @@
         } finally {
           pending = false;
           email.disabled = false;
-          phrase.disabled = false;
+          recoveryQuestion.disabled = false;
+          recoveryAnswer.disabled = false;
           password.disabled = false;
           password2.disabled = false;
           submit.disabled = false;
         }
       },
-    }, [email, phrase, password, password2, submit, msg]);
+    }, [email, field("Секретный вопрос", recoveryQuestion), field("Ответ на секретный вопрос", recoveryAnswer), password, password2, submit, msg]);
 
     shell({
       subtitle: "Восстановление пароля",
       actions: [el("a", { class: "small-btn", href: "/auth/login", "data-link": "1" }, ["Вход"]), el("a", { class: "small-btn", href: "/auth/register", "data-link": "1" }, ["Регистрация"])],
       main: el("div", {}, [el("h2", {}, ["Сброс пароля"]), form]),
-      sidebar: el("div", { class: "card" }, [infoText("Введите email, секретную фразу и новый пароль.")]),
+      sidebar: el("div", { class: "card" }, [infoText("Введите email, секретный вопрос, ответ и новый пароль.")]),
     });
   }
 
@@ -1000,7 +1050,8 @@
 
     const email = el("input", { id: "settings-email", class: "input", type: "email", placeholder: "name@example.com", value: data.email || "" });
     const name = el("input", { id: "settings-name", class: "input", placeholder: "Ваше имя", value: data.name || "" });
-    const phrase = el("input", { id: "settings-phrase", class: "input", placeholder: "Например: atlas forest river ...", value: data.recoveryPhrase || "" });
+    const recoveryQuestion = recoveryQuestionSelect("settings-question", data.recoveryQuestion || RECOVERY_QUESTIONS[0]);
+    const recoveryAnswer = el("input", { id: "settings-answer", class: "input", placeholder: "Ответ на вопрос", value: data.recoveryAnswer || "" });
     const pass = el("input", { id: "settings-pass", class: "input", type: "password", placeholder: "Оставьте пустым, если не меняете" });
     const pass2 = el("input", { id: "settings-pass2", class: "input", type: "password", placeholder: "Повторите новый пароль" });
     const avatar = el("input", { id: "settings-avatar", class: "file-input file-input-hidden", type: "file", accept: "image/*" });
@@ -1053,14 +1104,16 @@
         msg.innerHTML = "";
         if (!validateEmail(email.value)) return msg.appendChild(errorText("Введите корректный email"));
         if ((name.value || "").trim().length < 2) return msg.appendChild(errorText("Имя должно содержать минимум 2 символа"));
-        if ((phrase.value || "").trim().length < 10) return msg.appendChild(errorText("Секретная фраза слишком короткая"));
+        if (!RECOVERY_QUESTIONS.includes(recoveryQuestion.value)) return msg.appendChild(errorText("Выберите корректный секретный вопрос"));
+        if ((recoveryAnswer.value || "").trim().length < 2) return msg.appendChild(errorText("Ответ на секретный вопрос слишком короткий"));
         if (pass.value && pass.value.length < 6) return msg.appendChild(errorText("Пароль должен быть не короче 6 символов"));
         if (pass.value && pass.value !== pass2.value) return msg.appendChild(errorText("Пароли не совпадают"));
 
         const fd = new FormData();
         fd.set("email", email.value);
         fd.set("name", name.value);
-        fd.set("recovery_phrase", phrase.value);
+        fd.set("recovery_question", recoveryQuestion.value);
+        fd.set("recovery_answer", recoveryAnswer.value);
         if (pass.value) fd.set("password", pass.value);
         if (avatar.files && avatar.files[0]) fd.set("avatar", avatar.files[0]);
 
@@ -1080,7 +1133,8 @@
       avatarHint,
       field("Email", email),
       field("Имя", name),
-      field("Секретная фраза", phrase, { help: "Нужна для восстановления пароля. Храните в надежном месте." }),
+      field("Секретный вопрос", recoveryQuestion, { help: "Выберите вопрос для восстановления доступа." }),
+      field("Ответ на секретный вопрос", recoveryAnswer, { help: "Используется вместе с вопросом при сбросе пароля." }),
       field("Новый пароль", pass, { help: "Минимум 6 символов. Оставьте пустым, если не меняете." }),
       field("Повторите новый пароль", pass2),
       el("button", { class: "upload-btn", type: "submit" }, ["Сохранить изменения"]),

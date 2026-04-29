@@ -16,7 +16,8 @@ from .auth import (
     validate_email,
     validate_name,
     validate_password,
-    validate_recovery_phrase,
+    validate_recovery_answer,
+    validate_recovery_question,
 )
 from .context import MEDIA_PATH, pwd_context
 from .deps import get_current_user, get_db, require_user
@@ -59,14 +60,23 @@ def _like_any_case(col, q: str):
 
 @router.post("/api/auth/register")
 def register_api(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
-    user = do_register(db=db, email=payload.email, name=payload.name, password=payload.password)
+    user = do_register(
+        db=db,
+        email=payload.email,
+        name=payload.name,
+        password=payload.password,
+        recovery_question=payload.recoveryQuestion,
+        recovery_answer=payload.recoveryAnswer,
+    )
     request.session["user_id"] = user.id
     return {
         "id": user.id,
         "email": user.email,
         "name": user.name,
         "createdAt": user.created_at,
-        "recoveryPhrase": user.recovery_phrase,
+        "recoveryQuestion": user.recovery_question,
+        "recoveryAnswer": user.recovery_answer,
+        "recoveryPhrase": user.recovery_answer,
         "avatarFilename": user.avatar_filename,
     }
 
@@ -80,6 +90,9 @@ def login_api(payload: LoginRequest, request: Request, db: Session = Depends(get
         "email": user.email,
         "name": user.name,
         "createdAt": user.created_at,
+        "recoveryQuestion": user.recovery_question,
+        "recoveryAnswer": user.recovery_answer,
+        "recoveryPhrase": user.recovery_answer,
         "avatarFilename": user.avatar_filename,
     }
 
@@ -94,6 +107,9 @@ def me_api(request: Request, db: Session = Depends(get_db)):
         "email": user.email,
         "name": user.name,
         "createdAt": user.created_at,
+        "recoveryQuestion": user.recovery_question,
+        "recoveryAnswer": user.recovery_answer,
+        "recoveryPhrase": user.recovery_answer,
         "avatarFilename": user.avatar_filename,
     }
 
@@ -103,8 +119,10 @@ def reset_password_api(payload: ResetPasswordRequest, db: Session = Depends(get_
     do_reset_password(
         db=db,
         email=payload.email,
-        recovery_phrase=payload.recoveryPhrase,
+        recovery_question=payload.recoveryQuestion,
+        recovery_answer=payload.recoveryAnswer,
         new_password=payload.newPassword,
+        recovery_phrase=payload.recoveryPhrase,
     )
     return {"ok": True}
 
@@ -185,7 +203,9 @@ def profile_settings_get_api(request: Request, db: Session = Depends(get_db)):
     return {
         "email": user.email,
         "name": user.name,
-        "recoveryPhrase": user.recovery_phrase,
+        "recoveryQuestion": user.recovery_question,
+        "recoveryAnswer": user.recovery_answer,
+        "recoveryPhrase": user.recovery_answer,
         "avatarFilename": user.avatar_filename,
     }
 
@@ -195,7 +215,9 @@ def profile_settings_post_api(
     request: Request,
     email: str = Form(...),
     name: str = Form(...),
-    recovery_phrase: str = Form(...),
+    recovery_question: str = Form(None),
+    recovery_answer: str = Form(None),
+    recovery_phrase: str = Form(None),
     password: str = Form(None),
     avatar: UploadFile = File(None),
     db: Session = Depends(get_db),
@@ -204,7 +226,8 @@ def profile_settings_post_api(
 
     normalized_email = validate_email(email)
     normalized_name = validate_name(name)
-    normalized_phrase = validate_recovery_phrase(recovery_phrase)
+    normalized_question = validate_recovery_question(recovery_question or user.recovery_question or "")
+    normalized_answer = validate_recovery_answer(recovery_answer or recovery_phrase or user.recovery_answer or user.recovery_phrase)
 
     email_owner = db.query(User).filter(User.email == normalized_email, User.id != user.id).first()
     if email_owner:
@@ -212,7 +235,9 @@ def profile_settings_post_api(
 
     user.email = normalized_email
     user.name = normalized_name
-    user.recovery_phrase = normalized_phrase
+    user.recovery_question = normalized_question
+    user.recovery_answer = normalized_answer
+    user.recovery_phrase = normalized_answer
 
     if password and password.strip():
         user.password_hash = pwd_context.hash(validate_password(password))

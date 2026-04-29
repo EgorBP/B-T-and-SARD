@@ -429,6 +429,29 @@ body{
   font-size:12px;
   line-height:1.45;
 }
+.recovery-group{
+  display:grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap:8px;
+  padding:0;
+  margin:0;
+}
+.recovery-group .field{
+  gap:4px;
+}
+.recovery-group .field-label{
+  font-size:11px;
+  font-weight:600;
+  color: rgba(174,184,200,0.88);
+}
+.recovery-group .input{
+  padding:9px 11px;
+}
+@media (max-width: 640px){
+  .recovery-group{
+    grid-template-columns: 1fr;
+  }
+}
 .settings-avatar-row{
   display:flex;
   gap:12px;
@@ -562,6 +585,14 @@ body{
   border:1px solid var(--glass-border);
   color:inherit;
   font-size:13px;
+}
+select.input{
+  color-scheme: dark;
+  background-color: #142238;
+}
+select.input option{
+  background: var(--card);
+  color: #eef3fb;
 }
 .file-row{display:flex;gap:8px;align-items:center;}
 .upload-btn{

@@ -6,7 +6,16 @@ from sqlalchemy.orm import Session
 
 from models import Track, User
 
-from .auth import do_login, do_register, do_reset_password, validate_email, validate_name, validate_password, validate_recovery_phrase
+from .auth import (
+    do_login,
+    do_register,
+    do_reset_password,
+    validate_email,
+    validate_name,
+    validate_password,
+    validate_recovery_answer,
+    validate_recovery_question,
+)
 from .context import MEDIA_PATH, pwd_context, render_spa, templates
 from .deps import get_current_user, get_db
 from .storage import save_uploaded_file
@@ -59,10 +68,19 @@ def register_form(
     email: str = Form(...),
     name: str = Form(...),
     password: str = Form(...),
+    recovery_question: str = Form(None),
+    recovery_answer: str = Form(None),
     db: Session = Depends(get_db),
 ):
     try:
-        user = do_register(db=db, email=email, name=name, password=password)
+        user = do_register(
+            db=db,
+            email=email,
+            name=name,
+            password=password,
+            recovery_question=recovery_question,
+            recovery_answer=recovery_answer,
+        )
     except HTTPException as exc:
         return templates.TemplateResponse(
             "register.html",
@@ -71,6 +89,8 @@ def register_form(
                 "error": str(exc.detail),
                 "form_email": email,
                 "form_name": name,
+                "form_recovery_question": recovery_question,
+                "form_recovery_answer": recovery_answer,
             },
             status_code=exc.status_code,
         )
@@ -107,12 +127,21 @@ def login_form(
 def forgot_password_form(
     request: Request,
     email: str = Form(...),
-    recovery_phrase: str = Form(...),
+    recovery_question: str = Form(None),
+    recovery_answer: str = Form(None),
+    recovery_phrase: str = Form(None),
     new_password: str = Form(...),
     db: Session = Depends(get_db),
 ):
     try:
-        do_reset_password(db=db, email=email, recovery_phrase=recovery_phrase, new_password=new_password)
+        do_reset_password(
+            db=db,
+            email=email,
+            recovery_question=recovery_question,
+            recovery_answer=recovery_answer,
+            recovery_phrase=recovery_phrase,
+            new_password=new_password,
+        )
     except HTTPException as exc:
         return templates.TemplateResponse(
             "forgot_password.html",
@@ -120,7 +149,8 @@ def forgot_password_form(
                 "request": request,
                 "error": str(exc.detail),
                 "form_email": email,
-                "form_recovery_phrase": recovery_phrase,
+                "form_recovery_question": recovery_question,
+                "form_recovery_answer": recovery_answer,
             },
             status_code=exc.status_code,
         )
@@ -143,7 +173,9 @@ def profile_settings_form(
     request: Request,
     email: str = Form(...),
     name: str = Form(...),
-    recovery_phrase: str = Form(...),
+    recovery_question: str = Form(None),
+    recovery_answer: str = Form(None),
+    recovery_phrase: str = Form(None),
     password: str = Form(None),
     avatar: UploadFile = File(None),
     db: Session = Depends(get_db),
@@ -155,7 +187,8 @@ def profile_settings_form(
     try:
         normalized_email = validate_email(email)
         normalized_name = validate_name(name)
-        normalized_phrase = validate_recovery_phrase(recovery_phrase)
+        normalized_question = validate_recovery_question(recovery_question or user.recovery_question or "")
+        normalized_answer = validate_recovery_answer(recovery_answer or recovery_phrase or user.recovery_answer or user.recovery_phrase)
     except HTTPException as exc:
         return templates.TemplateResponse(
             "profile_settings.html",
@@ -163,6 +196,8 @@ def profile_settings_form(
                 "request": request,
                 "user": user,
                 "error": str(exc.detail),
+                "form_recovery_question": recovery_question,
+                "form_recovery_answer": recovery_answer,
             },
             status_code=exc.status_code,
         )
@@ -175,13 +210,17 @@ def profile_settings_form(
                 "request": request,
                 "user": user,
                 "error": "Пользователь с таким email уже существует",
+                "form_recovery_question": recovery_question,
+                "form_recovery_answer": recovery_answer,
             },
             status_code=409,
         )
 
     user.email = normalized_email
     user.name = normalized_name
-    user.recovery_phrase = normalized_phrase
+    user.recovery_question = normalized_question
+    user.recovery_answer = normalized_answer
+    user.recovery_phrase = normalized_answer
 
     if password and password.strip():
         user.password_hash = pwd_context.hash(validate_password(password))

@@ -10,6 +10,8 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
     recovery_phrase = Column(String, nullable=False)
+    recovery_question = Column(String, nullable=False, default="")
+    recovery_answer = Column(String, nullable=False, default="")
     avatar_filename = Column(String, nullable=True)
     name = Column(String, nullable=False)
     created_at = Column(DateTime(), server_default=func.now(), nullable=False)
