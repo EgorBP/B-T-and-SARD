@@ -1,6 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from sqlalchemy import inspect, text
 
@@ -23,8 +25,16 @@ def create_app() -> FastAPI:
     app.add_middleware(SessionMiddleware, secret_key="secret")
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
-    app.include_router(pages_router)
+    @app.exception_handler(StarletteHTTPException)
+    async def not_found_to_spa(request: Request, exc: StarletteHTTPException):
+        if exc.status_code == 404 and not request.url.path.startswith("/api/"):
+            from .context import render_spa
+
+            return render_spa(request)
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
     app.include_router(api_router)
+    app.include_router(pages_router)
     return app
 
 

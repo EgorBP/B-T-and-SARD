@@ -91,7 +91,8 @@
   function pageJsForPath(path) {
     const match = path.match(/^\/tracks\/\d+\/edit$/);
     if (match) return ["/static/pages-js/viewTrackEdit.js"];
-    return PAGE_JS[path] || ["/static/pages-js/viewHome.js"];
+    if (PAGE_JS[path]) return PAGE_JS[path];
+    return [];
   }
 
   async function loadPageJs(path) {
@@ -163,6 +164,24 @@
 
   function infoText(msg) {
     return el("p", { style: "margin-top:8px;color:var(--muted);font-size:14px;" }, [msg]);
+  }
+
+  function emptyStateCard({ title, text, actionHref, actionLabel }) {
+    const children = [
+      el("div", { class: "empty-state-icon", "aria-hidden": "true" }, ["404"]),
+      el("div", { class: "empty-state-body" }, [
+        el("h2", { class: "empty-state-title" }, [title]),
+        el("p", { class: "empty-state-text" }, [text]),
+      ]),
+    ];
+    if (actionHref && actionLabel) {
+      children.push(
+        el("div", { class: "empty-state-actions" }, [
+          el("a", { class: "public-btn", href: actionHref, "data-link": "1" }, [actionLabel]),
+        ])
+      );
+    }
+    return el("div", { class: "empty-state" }, children);
   }
 
   function loadingRow(label = "Загрузка...") {
@@ -1525,6 +1544,27 @@
     });
   }
 
+  async function viewNotFound() {
+    setPageCleanup(null);
+    document.title = "Страница не найдена - SpotX";
+
+    shell({
+      subtitle: "404",
+      actions: topNav("home"),
+      main: el("div", {}, [
+        emptyStateCard({
+          title: "Страница не найдена",
+          text: "Адрес не существует или был удален. Проверьте ссылку или перейдите на главную.",
+          actionHref: "/",
+          actionLabel: "На главную",
+        }),
+      ]),
+      sidebar: el("div", { class: "card" }, [
+        infoText("Если это была старая ссылка, попробуйте открыть нужный раздел заново."),
+      ]),
+    });
+  }
+
   async function renderRoute() {
     try {
       setPageCleanup(null);
@@ -1543,7 +1583,7 @@
       if (path === "/tracks/upload") return (views.viewUpload || viewUpload)();
       const m = path.match(/^\/tracks\/(\d+)\/edit$/);
       if (m) return (views.viewTrackEdit || viewTrackEdit)(Number(m[1]));
-      return (views.viewHome || viewHome)();
+      return viewNotFound();
     } catch (err) {
       const app = qs("#app");
       if (app) {

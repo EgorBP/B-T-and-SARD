@@ -298,3 +298,10 @@ def toggle_privacy(track_id: int, request: Request, db: Session = Depends(get_db
 def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/", status_code=303)
+
+
+@router.get("/{full_path:path}")
+def spa_fallback(full_path: str, request: Request):
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return render_spa(request)
