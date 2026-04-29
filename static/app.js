@@ -4,6 +4,8 @@
     userLoaded: false,
     publicTracks: [],
     myTracks: [],
+    uploadSessionTracks: [],
+    uploadDraft: null,
     avatarBust: 0,
     search: { q: "", scope: "public", by: "title", items: [], didSearch: false },
   };
@@ -130,6 +132,8 @@
   }
 
   const ICON = {
+    play:
+      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 4l14 8-14 8V4z" fill="currentColor"/></svg>',
     info:
       '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 17v-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 8h.01" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="1.4" opacity="0.9"/></svg>',
     download:
@@ -140,6 +144,8 @@
       '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 11V8a5 5 0 0110 0v3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M7 11h10v10H7V11z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
     unlock:
       '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17 11V8a5 5 0 00-9.6-2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M7 11h10v10H7V11z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+    github:
+      '<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 2.25c-5.38 0-9.75 4.37-9.75 9.75 0 4.3 2.79 7.95 6.66 9.24.49.09.67-.21.67-.48 0-.24-.01-.87-.01-1.71-2.71.59-3.28-1.31-3.28-1.31-.44-1.12-1.08-1.42-1.08-1.42-.88-.6.07-.59.07-.59.97.07 1.48 1 1.48 1 .86 1.48 2.26 1.05 2.81.8.09-.63.34-1.05.62-1.29-2.16-.25-4.43-1.08-4.43-4.8 0-1.06.38-1.93 1-2.61-.1-.25-.43-1.26.1-2.62 0 0 .82-.26 2.7 1a9.4 9.4 0 012.46-.33c.84 0 1.68.11 2.46.33 1.88-1.26 2.7-1 2.7-1 .53 1.36.2 2.37.1 2.62.62.68 1 1.55 1 2.61 0 3.73-2.27 4.55-4.44 4.8.35.3.66.88.66 1.78 0 1.29-.01 2.33-.01 2.65 0 .27.18.58.68.48A9.76 9.76 0 0021.75 12c0-5.38-4.37-9.75-9.75-9.75z"/></svg>',
   };
 
   function fmtDate(value) {
@@ -264,6 +270,48 @@
     ];
   }
 
+  function footer() {
+    return el("footer", { class: "footer" }, [
+      el("a", {
+        class: "footer-link",
+        href: "https://github.com/EgorBP",
+        target: "_blank",
+        rel: "noreferrer",
+        "aria-label": "GitHub EgorBP",
+        title: "GitHub EgorBP",
+        html: ICON.github,
+      }, []),
+    ]);
+  }
+
+  function loadMoreItem(onClick, loading) {
+    const btn = el("button", { class: "public-btn load-more-btn", type: "button", disabled: loading ? "1" : null }, [
+      loading ? "Загружаем..." : "Загрузить ещё",
+    ]);
+    btn.addEventListener("click", () => {
+      if (!loading) onClick();
+    });
+
+    return btn;
+  }
+
+  function restoreFileInput(input, file) {
+    if (!input || !file) return;
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+    } catch {}
+  }
+
+  function tracksForScope(scope) {
+    if (scope === "mine") {
+      if (window.location.pathname === "/tracks/upload") return state.uploadSessionTracks;
+      return state.myTracks;
+    }
+    return state.publicTracks;
+  }
+
   function shell({ subtitle, actions, main, sidebar }) {
     const app = qs("#app");
     app.innerHTML = "";
@@ -271,12 +319,14 @@
     const classes = ["container"];
     if (path === "/profile") classes.push("page-profile");
     if (path === "/search") classes.push("page-search");
+    if (path === "/tracks/upload") classes.push("page-upload");
     const containerClass = classes.join(" ");
     app.appendChild(
       el("div", { class: containerClass }, [
         header(subtitle, actions),
         el("main", { class: "card" }, [main]),
         el("aside", { class: "sidebar" }, [sidebar || el("div")]),
+        path === "/tracks/upload" ? null : footer(),
       ])
     );
 
@@ -289,7 +339,7 @@
   function trackItem(track, { own, scope } = {}) {
     const buttons = [];
     buttons.push(
-      el("button", { class: "icon-btn play-btn", type: "button", "data-file": `/media/${track.filename}`, "data-title": track.title, "aria-label": "Воспроизвести" }, [])
+      el("button", { class: "icon-btn play-btn", type: "button", "data-file": `/media/${track.filename}`, "data-title": track.title, "aria-label": "Воспроизвести", html: ICON.play }, [])
     );
     if (own) {
       // Order requested: play, privacy, info.
@@ -413,17 +463,18 @@
     ]);
     const list = el("div", { class: "tracks-list" }, []);
     const listStatus = el("div");
-    const loadMoreWrap = el("div", { style: "margin-top:14px;display:none;justify-content:center;" }, []);
-    const loadMoreBtn = el("button", { class: "public-btn", type: "button" }, ["Загрузить ещё"]);
-    loadMoreWrap.appendChild(loadMoreBtn);
 
-    const main = el("div", {}, [head, list, listStatus, loadMoreWrap]);
+    const main = el("div", {}, [head, list, listStatus]);
     shell({ subtitle: "Треки", actions: topNav("tracks"), main, sidebar: userSideCard() });
 
     const renderList = () => {
       list.innerHTML = "";
       for (const track of state.publicTracks) {
         list.appendChild(trackItem(track, { own: false, scope: "public" }));
+      }
+
+      if (pager.hasMore) {
+        list.appendChild(loadMoreItem(loadMore, pager.loading));
       }
 
       if (pager.total > 0 || !pager.hasMore) countNode.textContent = `${state.publicTracks.length} из ${pager.total} треков`;
@@ -434,33 +485,12 @@
         listStatus.appendChild(infoText("Пока нет публичных треков."));
       }
 
-      loadMoreBtn.disabled = pager.loading;
-      loadMoreBtn.textContent = pager.loading ? "Загружаем..." : "Загрузить ещё";
-      const cannotScroll = list.scrollHeight <= list.clientHeight + 2;
-      const nearBottom = list.scrollHeight - list.clientHeight - list.scrollTop <= 24;
-      const scrolledEnough = list.scrollTop > 60;
-      loadMoreWrap.style.display = pager.hasMore && (cannotScroll || scrolledEnough || nearBottom) ? "flex" : "none";
-
       try {
         window.dispatchEvent(new Event("spotx:render"));
       } catch {}
     };
 
-    const onScroll = () => {
-      if (window.location.pathname !== "/tracks") return;
-      if (!pager.hasMore || pager.loading) {
-        if (loadMoreWrap.style.display !== "none") loadMoreWrap.style.display = "none";
-        return;
-      }
-      const cannotScroll = list.scrollHeight <= list.clientHeight + 2;
-      const nearBottom = list.scrollHeight - list.clientHeight - list.scrollTop <= 24;
-      const scrolledEnough = list.scrollTop > 60;
-      loadMoreWrap.style.display = cannotScroll || scrolledEnough || nearBottom ? "flex" : "none";
-    };
-    list.addEventListener("scroll", onScroll, { passive: true });
-    setPageCleanup(() => list.removeEventListener("scroll", onScroll));
-
-    const loadMore = async () => {
+    async function loadMore() {
       if (pager.loading || !pager.hasMore) return;
       pager.loading = true;
       renderList();
@@ -477,11 +507,8 @@
         pager.loading = false;
         renderList();
       }
-    };
+    }
 
-    loadMoreBtn.addEventListener("click", () => {
-      void loadMore();
-    });
     await loadMore();
   }
 
@@ -940,16 +967,13 @@
 
     const list = el("div", { class: "tracks-list" }, []);
     const listStatus = el("div");
-    const loadMoreWrap = el("div", { style: "margin-top:14px;display:none;justify-content:center;" }, []);
-    const loadMoreBtn = el("button", { class: "public-btn", type: "button" }, ["Загрузить ещё"]);
-    loadMoreWrap.appendChild(loadMoreBtn);
 
     const countNode = el("div", { class: "section-count" }, ["0 треков"]);
     const head = el("div", { class: "section-head" }, [
       el("h2", { class: "section-title" }, ["Ваши треки"]),
       countNode,
     ]);
-    const main = el("div", {}, [head, list, listStatus, loadMoreWrap]);
+    const main = el("div", {}, [head, list, listStatus]);
 
     const side = el("div", { class: "sidebar-stack" }, [
       el("div", { class: "card profile-header profile-mobile-user" }, [
@@ -977,6 +1001,10 @@
         list.appendChild(trackItem(track, { own: true, scope: "mine" }));
       }
 
+      if (pager.hasMore) {
+        list.appendChild(loadMoreItem(loadMore, pager.loading));
+      }
+
       if (pager.total > 0 || !pager.hasMore) countNode.textContent = `${state.myTracks.length} из ${pager.total} треков`;
       else countNode.textContent = `${state.myTracks.length} треков`;
 
@@ -985,33 +1013,12 @@
         listStatus.appendChild(infoText("У вас пока нет загруженных треков."));
       }
 
-      loadMoreBtn.disabled = pager.loading;
-      loadMoreBtn.textContent = pager.loading ? "Загружаем..." : "Загрузить ещё";
-      const cannotScroll = list.scrollHeight <= list.clientHeight + 2;
-      const nearBottom = list.scrollHeight - list.clientHeight - list.scrollTop <= 24;
-      const scrolledEnough = list.scrollTop > 60;
-      loadMoreWrap.style.display = pager.hasMore && (cannotScroll || scrolledEnough || nearBottom) ? "flex" : "none";
-
       try {
         window.dispatchEvent(new Event("spotx:render"));
       } catch {}
     };
 
-    const onScroll = () => {
-      if (window.location.pathname !== "/profile") return;
-      if (!pager.hasMore || pager.loading) {
-        if (loadMoreWrap.style.display !== "none") loadMoreWrap.style.display = "none";
-        return;
-      }
-      const cannotScroll = list.scrollHeight <= list.clientHeight + 2;
-      const nearBottom = list.scrollHeight - list.clientHeight - list.scrollTop <= 24;
-      const scrolledEnough = list.scrollTop > 60;
-      loadMoreWrap.style.display = cannotScroll || scrolledEnough || nearBottom ? "flex" : "none";
-    };
-    list.addEventListener("scroll", onScroll, { passive: true });
-    setPageCleanup(() => list.removeEventListener("scroll", onScroll));
-
-    const loadMore = async () => {
+    async function loadMore() {
       if (pager.loading || !pager.hasMore) return;
       pager.loading = true;
       renderList();
@@ -1028,11 +1035,8 @@
         pager.loading = false;
         renderList();
       }
-    };
+    }
 
-    loadMoreBtn.addEventListener("click", () => {
-      void loadMore();
-    });
     await loadMore();
   }
 
@@ -1152,6 +1156,44 @@
   async function viewUpload() {
     document.title = "Загрузка трека - SpotX";
     if (!state.user) return navigate("/auth/login", { replace: true });
+    if (!Array.isArray(state.uploadSessionTracks)) state.uploadSessionTracks = [];
+    if (!state.uploadDraft) {
+      state.uploadDraft = {
+        title: "",
+        description: "",
+        coverFile: null,
+        coverFileName: "",
+        audioFile: null,
+        audioFileName: "",
+      };
+    }
+    const draft = state.uploadDraft;
+
+    const tracksHost = el("div", {}, [infoText("В этой сессии пока ничего не загружено.")]);
+    const tracksCard = el("div", { class: "card sidebar-tracks-card" }, [
+      el("h3", { style: "margin-top:0;" }, ["Добавлено в этой сессии"]),
+      tracksHost,
+    ]);
+
+    const renderTracks = () => {
+      tracksHost.innerHTML = "";
+      if (!state.uploadSessionTracks.length) {
+        tracksHost.appendChild(infoText("В этой сессии пока ничего не загружено."));
+        try {
+          window.dispatchEvent(new Event("spotx:render"));
+        } catch {}
+        return;
+      }
+      const list = el("div", { class: "tracks-list tracks-list-sidebar" }, []);
+      for (const track of state.uploadSessionTracks) {
+        list.appendChild(trackItem(track, { own: true, scope: "mine" }));
+      }
+      tracksHost.appendChild(list);
+      try {
+        window.dispatchEvent(new Event("spotx:render"));
+      } catch {}
+    };
+
     const title = el("input", { class: "input", placeholder: "Название трека", required: "1" });
     const description = el("textarea", { class: "input textarea", placeholder: "Описание (необязательно)", rows: "4" });
     const cover = el("input", { class: "file-input file-input-hidden", type: "file", accept: "image/*" });
@@ -1162,8 +1204,12 @@
     const coverName = el("div", { class: "avatar-file" }, ["Обложка не выбрана"]);
     const coverPick = el("button", { class: "avatar-change-btn", type: "button", onclick: () => cover.click() }, ["Выбрать обложку"]);
     const coverPreview = el("div", { class: "cover-preview" }, [el("div", { class: "cover-placeholder" }, ["No cover"])]);
+    title.value = draft.title || "";
+    description.value = draft.description || "";
     cover.addEventListener("change", () => {
       const f = cover.files && cover.files[0];
+      draft.coverFile = f || null;
+      draft.coverFileName = f ? f.name : "";
       coverName.textContent = f ? f.name : "Обложка не выбрана";
       if (!f) return;
       const url = URL.createObjectURL(f);
@@ -1175,8 +1221,21 @@
     const pick = el("button", { class: "avatar-change-btn", type: "button", onclick: () => file.click() }, ["Выбрать аудио"]);
     file.addEventListener("change", () => {
       const f = file.files && file.files[0];
+      draft.audioFile = f || null;
+      draft.audioFileName = f ? f.name : "";
       fileName.textContent = f ? f.name : "Файл не выбран";
     });
+    if (draft.coverFile) {
+      coverName.textContent = draft.coverFileName || draft.coverFile.name || "Обложка не выбрана";
+      const url = URL.createObjectURL(draft.coverFile);
+      coverPreview.innerHTML = "";
+      coverPreview.appendChild(el("img", { class: "cover-image", src: url, alt: "Обложка трека" }));
+      restoreFileInput(cover, draft.coverFile);
+    }
+    if (draft.audioFile) {
+      fileName.textContent = draft.audioFileName || draft.audioFile.name || "Файл не выбран";
+      restoreFileInput(file, draft.audioFile);
+    }
 
     const filePicker = el("div", { class: "field" }, [
       el("div", { class: "field-label" }, ["Аудиофайл"]),
@@ -1203,6 +1262,8 @@
         msg.innerHTML = "";
         if (!title.value.trim()) return msg.appendChild(errorText("Название трека обязательно"));
         if (!file.files || !file.files[0]) return msg.appendChild(errorText("Выберите файл"));
+        draft.title = title.value;
+        draft.description = description.value || "";
 
         const fd = new FormData();
         fd.set("title", title.value.trim());
@@ -1211,9 +1272,12 @@
         if (cover.files && cover.files[0]) fd.set("cover", cover.files[0]);
 
         try {
-          await apiForm("/api/tracks/upload", fd);
+          const res = await apiForm("/api/tracks/upload", fd);
+          if (res?.track) {
+            state.uploadSessionTracks.unshift(res.track);
+            renderTracks();
+          }
           msg.appendChild(infoText("Трек загружен"));
-          msg.appendChild(el("div", { style: "margin-top:10px;" }, [el("a", { class: "public-btn", href: "/profile", "data-link": "1" }, ["В профиль"])]));
         } catch (err) {
           msg.appendChild(errorText(err.message || "Ошибка загрузки"));
         }
@@ -1232,9 +1296,16 @@
     shell({
       subtitle: "Загрузка трека",
       actions: topNav("profile"),
-      main: el("div", {}, [el("h2", {}, ["Добавить новый трек"]), form]),
-      sidebar: el("div"),
+      main: el("div", {}, [
+        el("div", { class: "section-head" }, [
+          el("h2", { class: "section-title" }, ["Добавить новый трек"]),
+          el("a", { class: "small-btn", href: "/profile", "data-link": "1" }, ["В профиль"]),
+        ]),
+        form,
+      ]),
+      sidebar: tracksCard,
     });
+    renderTracks();
   }
 
   async function viewTrackEdit(trackId) {
@@ -1405,14 +1476,15 @@
         app.innerHTML = "";
         app.appendChild(
           el("div", { class: "container" }, [
-            el("div", { class: "card" }, [
-              el("h2", {}, ["Ошибка в клиентском коде"]),
-              el("p", { style: "color:var(--muted)" }, ["Откройте DevTools Console, но ниже есть текст ошибки:"]),
-              el("pre", { style: "white-space:pre-wrap;color:#fca5a5;background:rgba(255,255,255,0.03);padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.06);" }, [msg + (stack ? "\n\n" + stack : "")]),
-            ]),
-          ])
-        );
-      }
+          el("div", { class: "card" }, [
+            el("h2", {}, ["Ошибка в клиентском коде"]),
+            el("p", { style: "color:var(--muted)" }, ["Откройте DevTools Console, но ниже есть текст ошибки:"]),
+            el("pre", { style: "white-space:pre-wrap;color:#fca5a5;background:rgba(255,255,255,0.03);padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.06);" }, [msg + (stack ? "\n\n" + stack : "")]),
+          ]),
+          window.location.pathname === "/tracks/upload" ? null : footer(),
+        ])
+      );
+    }
     }
   }
 
@@ -1432,7 +1504,7 @@
     if (infoBtn) {
       const id = Number(infoBtn.getAttribute("data-track-id") || "0");
       const scope = infoBtn.getAttribute("data-scope") || "public";
-      const list = scope === "mine" ? state.myTracks : state.publicTracks;
+      const list = tracksForScope(scope);
       const t = list.find((x) => Number(x.id) === id);
       if (!t) return;
       const isMine = scope === "mine";
@@ -1450,7 +1522,12 @@
               try {
                 await apiJson(`/api/tracks/${t.id}`, { method: "DELETE" });
                 hideModal();
-                await viewProfile();
+                if (window.location.pathname === "/tracks/upload") {
+                  state.uploadSessionTracks = state.uploadSessionTracks.filter((x) => Number(x.id) !== Number(t.id));
+                  await viewUpload();
+                } else {
+                  await viewProfile();
+                }
               } catch (err) {
                 alert(err.message || "Ошибка");
               }
@@ -1466,7 +1543,10 @@
             el("div", { class: "track-info-main" }, [
               el("div", { class: "info-section-title" }, ["Основное"]),
               el("div", { class: "info-grid" }, [
-                el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Название"]), el("div", { class: "info-v" }, [t.title || "—"])]),
+                el("div", { class: "info-row info-row-title" }, [
+                  el("div", { class: "info-k" }, ["Название"]),
+                  el("div", { class: "info-v info-v-title" }, [t.title || "—"]),
+                ]),
                 el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Дата загрузки"]), el("div", { class: "info-v" }, [t.createdAt ? fmtDate(t.createdAt) : "—"])]),
                 isMine
                   ? el("div", { class: "info-row" }, [el("div", { class: "info-k" }, ["Доступ"]), el("div", { class: "info-v" }, [t.is_public ? "Публичный" : "Приватный"])])
