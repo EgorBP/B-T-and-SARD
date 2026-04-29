@@ -1095,6 +1095,12 @@ select.input option{
   .info-row-title{ gap:4px; }
   .info-k{ font-size:11px; }
   .info-v{ font-size:13px; }
+  .info-desc{
+    max-height:132px;
+    padding:9px 10px;
+    font-size:12px;
+    line-height:1.4;
+  }
 }
 
 /* full-bleed плавающий плеер */
@@ -1254,11 +1260,48 @@ select.input option{
     gap:16px;
   }
   .container.page-upload{
+    grid-template-columns:1fr;
     align-items:start;
+  }
+  .container.page-upload > .header{
+    grid-row:1;
   }
   .container.page-upload > main,
   .container.page-upload > .sidebar{
+    grid-column:1 / -1;
     overflow:visible;
+  }
+  .container.page-upload > main{
+    grid-row:2;
+  }
+  .container.page-upload .section-head{
+    flex-direction:column;
+    align-items:flex-start;
+    gap:8px;
+  }
+  .container.page-upload .section-head .small-btn{
+    width:100%;
+    justify-content:center;
+  }
+  .container.page-upload .sidebar-tracks-card{
+    padding:14px;
+  }
+  .container.page-upload .tracks-list,
+  .container.page-upload .tracks-list-sidebar{
+    padding-bottom:0;
+  }
+  .container.page-upload .track{
+    padding:10px;
+    gap:10px;
+  }
+  .container.page-upload .track-thumb{
+    width:52px;
+    height:52px;
+  }
+  .container.page-upload .track-title{
+    font-size:13px;
+    -webkit-line-clamp:2;
+    max-height:2.6em;
   }
   .card{
     padding:16px;
@@ -1284,6 +1327,10 @@ select.input option{
   }
   .container:not(.page-profile) .sidebar{
     display:none;
+  }
+  .container.page-upload > .sidebar{
+    display:block !important;
+    grid-row:3;
   }
   .container.page-profile > .sidebar{
     grid-row:2;

@@ -1,0 +1,5 @@
+@media (max-width:640px){
+  .recovery-group{
+    grid-template-columns:1fr;
+  }
+}

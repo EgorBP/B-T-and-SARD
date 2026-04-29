@@ -50,6 +50,68 @@
     }
   }
 
+  const PAGE_STYLES = {
+    "/tracks/upload": ["/static/pages-css/upload.css"],
+    "/profile": ["/static/pages-css/profile.css"],
+    "/profile/settings": ["/static/pages-css/profile.css"],
+    "/search": ["/static/pages-css/search.css"],
+    "/auth/login": ["/static/pages-css/auth.css"],
+    "/auth/register": ["/static/pages-css/auth.css"],
+    "/auth/forgot-password": ["/static/pages-css/auth.css"],
+    "/tracks": ["/static/pages-css/public.css"],
+  };
+
+  function syncPageStyles() {
+    const head = document.head;
+    head.querySelectorAll("link[data-spotx-page-style]").forEach((node) => node.remove());
+    const path = window.location.pathname;
+    const files = PAGE_STYLES[path] || [];
+    for (const href of files) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = href;
+      link.setAttribute("data-spotx-page-style", "1");
+      head.appendChild(link);
+    }
+  }
+
+  const PAGE_JS = {
+    "/": ["/static/pages-js/viewHome.js"],
+    "/tracks": ["/static/pages-js/viewPublic.js"],
+    "/search": ["/static/pages-js/viewSearch.js"],
+    "/auth/login": ["/static/pages-js/viewLogin.js"],
+    "/auth/register": ["/static/pages-js/viewRegister.js"],
+    "/auth/forgot-password": ["/static/pages-js/viewForgot.js"],
+    "/profile": ["/static/pages-js/viewProfile.js"],
+    "/profile/settings": ["/static/pages-js/viewSettings.js"],
+    "/tracks/upload": ["/static/pages-js/viewUpload.js"],
+  };
+  const pageJsCache = new Map();
+
+  function pageJsForPath(path) {
+    const match = path.match(/^\/tracks\/\d+\/edit$/);
+    if (match) return ["/static/pages-js/viewTrackEdit.js"];
+    return PAGE_JS[path] || ["/static/pages-js/viewHome.js"];
+  }
+
+  async function loadPageJs(path) {
+    const files = pageJsForPath(path);
+    await Promise.all(files.map((src) => {
+      if (!pageJsCache.has(src)) {
+        const promise = fetch(src)
+          .then((res) => {
+            if (!res.ok) throw new Error(`Failed to load ${src}`);
+            return res.text();
+          })
+          .then((code) => {
+            eval(code);
+          });
+        pageJsCache.set(src, promise);
+      }
+      return pageJsCache.get(src);
+    }));
+  }
+
   function navigate(path, { replace = false } = {}) {
     if (replace) history.replaceState({}, "", path);
     else history.pushState({}, "", path);
@@ -304,6 +366,17 @@
     } catch {}
   }
 
+  function updateTrackPrivacyInState(trackId, isPublic) {
+    const apply = (list) => {
+      if (!Array.isArray(list)) return;
+      const item = list.find((x) => Number(x.id) === Number(trackId));
+      if (item) item.is_public = !!isPublic;
+    };
+    apply(state.myTracks);
+    apply(state.uploadSessionTracks);
+    apply(state.publicTracks);
+  }
+
   function tracksForScope(scope) {
     if (scope === "mine") {
       if (window.location.pathname === "/tracks/upload") return state.uploadSessionTracks;
@@ -313,6 +386,7 @@
   }
 
   function shell({ subtitle, actions, main, sidebar }) {
+    syncPageStyles();
     const app = qs("#app");
     app.innerHTML = "";
     const path = window.location.pathname;
@@ -1456,18 +1530,20 @@
       setPageCleanup(null);
       await loadMe();
       const path = window.location.pathname;
-      if (path === "/") return viewHome();
-      if (path === "/tracks") return viewPublic();
-      if (path === "/search") return viewSearch();
-      if (path === "/auth/login") return viewLogin();
-      if (path === "/auth/register") return viewRegister();
-      if (path === "/auth/forgot-password") return viewForgot();
-      if (path === "/profile") return viewProfile();
-      if (path === "/profile/settings") return viewSettings();
-      if (path === "/tracks/upload") return viewUpload();
+      await loadPageJs(path);
+      const views = window.SpotXViews || {};
+      if (path === "/") return (views.viewHome || viewHome)();
+      if (path === "/tracks") return (views.viewPublic || viewPublic)();
+      if (path === "/search") return (views.viewSearch || viewSearch)();
+      if (path === "/auth/login") return (views.viewLogin || viewLogin)();
+      if (path === "/auth/register") return (views.viewRegister || viewRegister)();
+      if (path === "/auth/forgot-password") return (views.viewForgot || viewForgot)();
+      if (path === "/profile") return (views.viewProfile || viewProfile)();
+      if (path === "/profile/settings") return (views.viewSettings || viewSettings)();
+      if (path === "/tracks/upload") return (views.viewUpload || viewUpload)();
       const m = path.match(/^\/tracks\/(\d+)\/edit$/);
-      if (m) return viewTrackEdit(Number(m[1]));
-      return viewHome();
+      if (m) return (views.viewTrackEdit || viewTrackEdit)(Number(m[1]));
+      return (views.viewHome || viewHome)();
     } catch (err) {
       const app = qs("#app");
       if (app) {
@@ -1577,8 +1653,10 @@
       const id = btn.getAttribute("data-track-id");
       if (!id) return;
       try {
-        await apiJson(`/toggle_privacy/${id}`, { method: "POST", body: "{}" });
-        await viewProfile();
+        const res = await apiJson(`/toggle_privacy/${id}`, { method: "POST", body: "{}" });
+        updateTrackPrivacyInState(id, res?.is_public);
+        if (window.location.pathname === "/tracks/upload") await viewUpload();
+        else await viewProfile();
       } catch (err) {
         alert(err.message || "Ошибка");
       }
