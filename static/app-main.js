@@ -8,6 +8,7 @@
     uploadSessionTracks: [],
     uploadDraft: null,
     avatarBust: 0,
+    topTracks: [],
     search: { q: "", scope: "public", by: "title", items: [], didSearch: false },
     scrollPosition: 0,
   };
@@ -463,6 +464,7 @@
       state.publicTracks,
       state.favoriteTracks,
       state.uploadSessionTracks,
+      state.topTracks,
       state.search?.items,
     ];
     for (const list of lists) cb(list);
@@ -497,6 +499,7 @@
     state.publicTracks = remove(state.publicTracks) || [];
     state.favoriteTracks = remove(state.favoriteTracks) || [];
     state.uploadSessionTracks = remove(state.uploadSessionTracks) || [];
+    state.topTracks = remove(state.topTracks) || [];
     if (state.search && Array.isArray(state.search.items)) {
       state.search.items = remove(state.search.items) || [];
     }
@@ -508,6 +511,7 @@
       return state.myTracks;
     }
     if (scope === "favorites") return state.favoriteTracks;
+    if (scope === "top") return state.topTracks;
     return state.publicTracks;
   }
 
@@ -692,12 +696,13 @@
     try {
       const data = await apiJson("/api/tracks/top");
       const tracks = data.items || [];
+      state.topTracks = tracks;
       listStatus.textContent = "";
       if (!tracks.length) {
         listStatus.appendChild(infoText("Пока нет скачиваний."));
       } else {
         for (const t of tracks) {
-          list.appendChild(trackItem(t, { own: false, scope: "public" }));
+          list.appendChild(trackItem(t, { own: false, scope: "top" }));
         }
       }
     } catch {

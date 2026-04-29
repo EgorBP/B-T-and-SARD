@@ -37,12 +37,13 @@ window.SpotXViews.viewHome = async function viewHome() {
   try {
     const data = await apiJson("/api/tracks/top");
     const tracks = data.items || [];
+    state.topTracks = tracks;
     listStatus.textContent = "";
     if (!tracks.length) {
       listStatus.appendChild(infoText("Пока нет скачиваний."));
     } else {
       for (const t of tracks) {
-        list.appendChild(trackItem(t, { own: false, scope: "public" }));
+        list.appendChild(trackItem(t, { own: false, scope: "top" }));
       }
     }
   } catch {
