@@ -4,6 +4,14 @@
 
 **Продакшен:** [b-t-and-sard.onrender.com](https://b-t-and-sard.onrender.com/)
 
+| Главная страница | Вид на телефоне |
+|---------------|---------------|
+| <img width="1920" height="1032" alt="изображение" src="https://github.com/user-attachments/assets/e1acad0f-566b-4862-86a7-cf72d3d38499" /> | <img width="532" height="933" alt="изображение" src="https://github.com/user-attachments/assets/3eed2869-1913-4ec5-9f89-20751f7d9d70" /> |
+
+| Загрузка трека | Избранное |
+|----------------|----------------|
+| <img width="1920" height="1032" alt="изображение" src="https://github.com/user-attachments/assets/c96ed8a4-2b53-4c75-8a27-3937052b1d61" /> | <img width="1920" height="1032" alt="изображение" src="https://github.com/user-attachments/assets/c354528e-843b-4aaa-983d-da0c1280b99a" /> |
+
 ---
 
 ## О проекте
