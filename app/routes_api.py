@@ -48,10 +48,7 @@ def _normalize_search_query(q: str) -> str:
 
 
 def _like_any_case(col, q: str):
-    """
-    SQLite's LOWER()/NOCASE are ASCII-focused; for Cyrillic names this often breaks case-insensitive matching.
-    Use several Python-side case variants and match against the raw column instead.
-    """
+    # SQLite не умеет LOWER() для кириллицы, поэтому подбираем варианты регистра руками
     raw = (q or "").strip()
     variants = {raw, raw.lower(), raw.upper(), raw.title(), raw.capitalize()}
     variants = [v for v in variants if v]
@@ -81,9 +78,9 @@ def _serialize_track(track: Track, *, favorite_ids: set[int] | None = None, favo
         "owner_id": track.owner_id,
         "owner_name": track.owner.name if track.owner else None,
     }
-    # Новый: статистика трека и доп. алиасы для удобства клиента
     downloads = getattr(track, "downloads_count", 0) or 0
     favorites = getattr(track, "favorites_count", 0) or 0
+    # camelCase для нового фронта, короткие — для обратной совместимости
     payload["downloadsCount"] = downloads
     payload["downloads"] = downloads
     payload["favoritesCount"] = favorites
@@ -301,6 +298,7 @@ def profile_settings_post_api(
     normalized_email = validate_email(email)
     normalized_name = validate_name(name)
     normalized_question = validate_recovery_question(recovery_question or user.recovery_question or "")
+    # фоллбэк-цепочка: берём первое непустое значение — из формы, потом из БД
     normalized_answer = validate_recovery_answer(recovery_answer or recovery_phrase or user.recovery_answer or user.recovery_phrase)
 
     email_owner = db.query(User).filter(User.email == normalized_email, User.id != user.id).first()
@@ -404,6 +402,7 @@ def update_track_api(
             raise HTTPException(status_code=422, detail="Описание слишком длинное (макс 2000 символов)")
         track.description = desc
 
+    # is_public приходит строкой из FormData, парсим вручную
     if is_public is not None:
         v = (is_public or "").strip().lower()
         if v in ("1", "true", "yes", "on"):
@@ -448,7 +447,8 @@ def delete_track_api(track_id: int, request: Request, db: Session = Depends(get_
     db.delete(track)
     db.commit()
 
-    # Best-effort file cleanup.
+    # Пытаемся удалить файлы с диска, но если не вышло — не страшно, запись уже удалена.
+    # Проверяем path traversal, чтобы никто не стёр что-то за пределами MEDIA_PATH.
     def try_remove(rel_path: str) -> None:
         if not rel_path:
             return
@@ -491,6 +491,7 @@ def favorites_api(request: Request, limit: int | None = None, offset: int = 0, d
         db.query(Track, TrackFavorite.created_at.label("favorited_at"))
         .join(TrackFavorite, TrackFavorite.track_id == Track.id)
         .filter(TrackFavorite.user_id == user.id)
+        # показываем публичные + свои приватные (если трек скрыли после добавления в избранное)
         .filter(or_(Track.is_public == True, Track.owner_id == user.id))
     )
     total = query.with_entities(func.count(Track.id)).scalar() or 0
@@ -522,8 +523,8 @@ def search_public_tracks_api(
     db: Session = Depends(get_db),
 ):
     """
-    Search among public tracks.
-    by: "title" | "author"
+    Ищем по публичным трекам.
+    По: "title" | "author"
     """
     query = db.query(Track).filter(Track.is_public == True)
     if by == "title":
@@ -563,7 +564,7 @@ def search_my_tracks_api(
     db: Session = Depends(get_db),
 ):
     """
-    Search among current user's tracks (title + description).
+    Ищем по трекам пользователя (title + description).
     """
     user = require_user(request, db)
     qn = _normalize_search_query(q)
@@ -580,6 +581,7 @@ def search_my_tracks_api(
     if maxFavorites is not None:
         query = query.filter(Track.favorites_count <= maxFavorites)
 
+    # ищем и по названию, и по описанию — пользователь может не помнить точно
     tracks = (
         query
         .filter(or_(_like_any_case(Track.title, qn), _like_any_case(Track.description, qn)))
@@ -604,6 +606,7 @@ def add_favorite_api(track_id: int, request: Request, db: Session = Depends(get_
         .filter(TrackFavorite.user_id == user.id, TrackFavorite.track_id == track_id)
         .first()
     )
+    # дубликат не создаём, счётчик обновляем только при реальном добавлении
     if not existing:
         db.add(TrackFavorite(user_id=user.id, track_id=track_id))
         if track.favorites_count is None:

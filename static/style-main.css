@@ -1489,6 +1489,7 @@ select.input option{
 
 @media (max-width:900px){
   .fp-inner{
+    position:relative;
     width:calc(100% - 16px);
     margin:8px auto;
     padding:10px;
@@ -1496,6 +1497,12 @@ select.input option{
     flex-direction:column;
     align-items:stretch;
     gap:10px;
+  }
+  .fp-close-btn{
+    position:absolute;
+    top:6px;
+    right:6px;
+    z-index:2;
   }
   .fp-left,
   .fp-center,
